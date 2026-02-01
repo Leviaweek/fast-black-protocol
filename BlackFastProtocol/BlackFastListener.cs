@@ -1,0 +1,80 @@
+﻿using System.Buffers;
+using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading.Channels;
+
+namespace BlackFastProtocol;
+
+public sealed class BlackFastListener(IPEndPoint endPoint)
+{
+    private readonly UdpClient _client = new(endPoint);
+    
+    private readonly ConcurrentDictionary<Guid, BlackFastServerClient> _clients = new();
+    
+    private readonly Channel<BlackFastServerClient> _uniqueClients = Channel.CreateUnbounded<BlackFastServerClient>();
+
+    public async Task<BlackFastProtocol.BlackFastClient> AcceptClientAsync(CancellationToken token)
+    {
+        var client = await _uniqueClients.Reader.ReadAsync(token);
+        return client;
+    }
+
+    private async Task ReceiveLoop(CancellationToken token)
+    {
+        var emptyEndpoint = new IPEndPoint(IPAddress.Any, 0);
+        while (!token.IsCancellationRequested)
+        {
+            var owner = MemoryPool<byte>.Shared.Rent(65535);
+            var result = await _client.Client.ReceiveFromAsync(owner.Memory, SocketFlags.None, emptyEndpoint, token);
+            
+            var length = result.ReceivedBytes;
+            
+            if (length < 16)
+            {
+                owner.Dispose();
+                continue;
+            }
+            
+            var remoteEndpoint = (IPEndPoint)result.RemoteEndPoint!;
+            
+            var id = new Guid(owner.Memory.Span[..16]);
+            
+            var package = new UdpPackage(owner, length);
+            
+            if (_clients.TryGetValue(id, out var client))
+            { 
+                client.UpdateEndpoint(remoteEndpoint);
+                
+                if (!client.DataChanel.Writer.TryWrite(package))
+                {
+                    package.Dispose();
+                }
+                continue;
+            }
+
+            var channel = Channel.CreateUnbounded<UdpPackage>(new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false
+            });
+            
+            client = new BlackFastServerClient(_client, remoteEndpoint, channel, () =>
+            {
+                _clients.TryRemove(id, out _);
+                channel.Writer.TryComplete();
+            });
+
+            if (_clients.TryAdd(id, client))
+            {
+                await channel.Writer.WriteAsync(package, token);
+                await _uniqueClients.Writer.WriteAsync(client, token);
+            }
+            else
+            {
+                package.Dispose();
+                client.Dispose();
+            }
+        }
+    }
+}
