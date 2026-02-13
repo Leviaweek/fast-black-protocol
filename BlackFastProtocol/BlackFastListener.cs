@@ -14,7 +14,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint)
     
     private readonly Channel<BlackFastServerClient> _uniqueClients = Channel.CreateUnbounded<BlackFastServerClient>();
 
-    public async Task<BlackFastProtocol.BlackFastClient> AcceptClientAsync(CancellationToken token)
+    public async Task<BlackFastClient> AcceptClientAsync(CancellationToken token)
     {
         var client = await _uniqueClients.Reader.ReadAsync(token);
         return client;
@@ -27,26 +27,25 @@ public sealed class BlackFastListener(IPEndPoint endPoint)
         {
             var owner = MemoryPool<byte>.Shared.Rent(65535);
             var result = await _client.Client.ReceiveFromAsync(owner.Memory, SocketFlags.None, emptyEndpoint, token);
-            
+
             var length = result.ReceivedBytes;
-            
+
             if (length < 16)
             {
                 owner.Dispose();
                 continue;
             }
-            
+
             var remoteEndpoint = (IPEndPoint)result.RemoteEndPoint!;
-            
-            var id = new Guid(owner.Memory.Span[..16]);
-            
+            var id = ReadUserId(owner);
+
             var package = new UdpPackage(owner, length);
-            
+
             if (_clients.TryGetValue(id, out var client))
-            { 
+            {
                 client.UpdateEndpoint(remoteEndpoint);
-                
-                if (!client.DataChanel.Writer.TryWrite(package))
+
+                if (!client.DataChannel.Writer.TryWrite(package))
                 {
                     package.Dispose();
                 }
@@ -58,7 +57,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint)
                 SingleReader = true,
                 SingleWriter = false
             });
-            
+
             client = new BlackFastServerClient(_client, remoteEndpoint, channel, () =>
             {
                 _clients.TryRemove(id, out _);
@@ -67,8 +66,8 @@ public sealed class BlackFastListener(IPEndPoint endPoint)
 
             if (_clients.TryAdd(id, client))
             {
-                await channel.Writer.WriteAsync(package, token);
                 await _uniqueClients.Writer.WriteAsync(client, token);
+                await channel.Writer.WriteAsync(package, token);
             }
             else
             {
@@ -76,5 +75,20 @@ public sealed class BlackFastListener(IPEndPoint endPoint)
                 client.Dispose();
             }
         }
+    }
+
+    private static Guid ReadUserId(IMemoryOwner<byte> owner)
+    {
+        return new Guid(owner.Memory.Span[..16]);
+    }
+}
+
+public sealed class FastBlackSessionConext()
+{
+    public bool IsAborted { get; private set; }
+
+    public void Abort()
+    {
+        IsAborted = true;
     }
 }
