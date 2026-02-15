@@ -1,9 +1,11 @@
 using System.Buffers.Binary;
 
-namespace UdpServer.Packages.DataHeader;
+namespace BlackFastProtocol.Package.DataHeader;
 
 public sealed record DataHeaderPackage(int Id, int DataLength)
-    : Package(PackageType.DataHeader,Id, sizeof(PackageType) + sizeof(int) + sizeof(int)), ITypedPackage,IWriteablePackage, IReadablePackage<DataHeaderPackage>
+    : PackageBase(PackageType.DataHeader,
+        Id,
+        sizeof(PackageType) + sizeof(int) + sizeof(int)),IWriteablePackage, IReadablePackage<DataHeaderPackage>
 {
     public int ToBytes(Span<byte> buffer)
     {

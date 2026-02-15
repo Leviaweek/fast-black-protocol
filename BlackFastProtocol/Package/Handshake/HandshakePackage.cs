@@ -1,8 +1,10 @@
 using System.Buffers.Binary;
 
-namespace UdpServer.Packages.Handshake;
+namespace BlackFastProtocol.Package.Handshake;
 
-public sealed record HandshakePackage(int Id): Package(PackageType.Handshake, Id, sizeof(PackageType) + sizeof(int)), ITypedPackage, IWriteablePackage, IReadablePackage<HandshakePackage>
+public sealed record HandshakePackage(int Id)
+    : PackageBase(PackageType.Handshake, Id, sizeof(PackageType) + sizeof(int)), IWriteablePackage,
+        IReadablePackage<HandshakePackage>
 {
     public int ToBytes(Span<byte> buffer)
     {

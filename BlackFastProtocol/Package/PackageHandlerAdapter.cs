@@ -1,11 +1,9 @@
-using UdpListener;
-
-namespace UdpServer.Packages;
+namespace BlackFastProtocol.Package;
 
 public sealed class PackageHandlerAdapter<T>(IPackageHandler<T> innerHandler) : IPackageHandler
-    where T : Package, ITypedPackage, IReadablePackage<T>
+    where T : PackageBase, IReadablePackage<T>
 {
-    public async Task HandlePackageAsync(ReadOnlyMemory<byte> buffer, UdpSessionContext context, CancellationToken cancellationToken)
+    public async Task HandlePackageAsync(ReadOnlyMemory<byte> buffer, FastBlackSessionContext context, CancellationToken cancellationToken)
     {
         var package = PackageRw.ReadPackage<T>(buffer);
         await innerHandler.HandlePackageAsync(package, context, cancellationToken);

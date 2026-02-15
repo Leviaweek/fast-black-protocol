@@ -1,9 +1,9 @@
 using System.Buffers.Binary;
 
-namespace UdpServer.Packages.Ack;
+namespace BlackFastProtocol.Package.Ack;
 
-public sealed record AckPackage(int Id) : Package(PackageType.Ack, Id, sizeof(PackageType) + sizeof(int)),
-    ITypedPackage, IWriteablePackage, IReadablePackage<AckPackage>
+public sealed record AckPackage(int Id) : PackageBase(PackageType.Ack, Id, sizeof(PackageType) + sizeof(int)),
+    IWriteablePackage, IReadablePackage<AckPackage>
 {
     public int ToBytes(Span<byte> buffer)
     {

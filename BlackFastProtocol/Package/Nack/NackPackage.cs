@@ -1,9 +1,10 @@
 using System.Buffers.Binary;
 
-namespace UdpServer.Packages.UnAck;
+namespace BlackFastProtocol.Package.Nack;
 
-public sealed record UnAckPackage(int Id, ReadOnlyMemory<int> LostIds)
-    : Package(PackageType.UnAck, Id, sizeof(PackageType) + sizeof(int) + LostIds.Length * sizeof(int)), ITypedPackage, IWriteablePackage, IReadablePackage<UnAckPackage>
+public sealed record NackPackage(int Id, ReadOnlyMemory<int> LostIds)
+    : PackageBase(PackageType.UnAck, Id, sizeof(PackageType) + sizeof(int) + LostIds.Length * sizeof(int)),
+        IWriteablePackage, IReadablePackage<NackPackage>
 {
     
     public int ToBytes(Span<byte> buffer)
@@ -21,7 +22,7 @@ public sealed record UnAckPackage(int Id, ReadOnlyMemory<int> LostIds)
         return Length;
     }
     
-    public static UnAckPackage ReadPackage(ReadOnlyMemory<byte> buffer)
+    public static NackPackage ReadPackage(ReadOnlyMemory<byte> buffer)
     {
         if (buffer.Length < 5)
             throw new ArgumentException("Buffer too small", nameof(buffer));
@@ -35,6 +36,6 @@ public sealed record UnAckPackage(int Id, ReadOnlyMemory<int> LostIds)
         {
             lostIds[i] = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(5 + i * 4, 4));
         }
-        return new UnAckPackage(id, lostIds);
+        return new NackPackage(id, lostIds);
     }
 }

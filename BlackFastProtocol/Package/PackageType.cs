@@ -1,10 +1,12 @@
-namespace UdpServer.Packages;
+namespace BlackFastProtocol.Package;
 
 public enum PackageType : byte
 {
     Handshake = 0,
     Ack = 1,
     UnAck = 2,
-    DataHeader = 3,
-    DataFrame = 4
+    DataPackage = 3,
+    DataHeader = 4,
+    DataFrame = 5,
+    DataChunk = 6,
 }

@@ -1,4 +1,4 @@
-namespace UdpServer.Packages;
+namespace BlackFastProtocol.Package;
 
 public interface ITypedPackage
 {

@@ -1,9 +1,11 @@
+
 using System.Buffers.Binary;
 
-namespace UdpServer.Packages.DataFrame;
+namespace BlackFastProtocol.Package.DataFrame;
 
 public sealed record DataFramePackage(int Id, ReadOnlyMemory<byte> Data)
-    : Package(PackageType.DataHeader, Id, sizeof(PackageType) + sizeof(int) + Data.Length), ITypedPackage, IWriteablePackage, IReadablePackage<DataFramePackage>
+    : PackageBase(PackageType.DataFrame, Id, sizeof(PackageType) + sizeof(int) + Data.Length), IWriteablePackage,
+        IReadablePackage<DataFramePackage>
 {
     public int ToBytes(Span<byte> buffer)
     {

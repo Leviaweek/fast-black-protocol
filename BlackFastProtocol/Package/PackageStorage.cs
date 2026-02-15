@@ -1,7 +1,7 @@
-namespace UdpServer.Packages;
+namespace BlackFastProtocol.Package;
 
 public sealed class PackageStorage
 {
-    public Package? LastReceivedPackage { get; set; }
+    public PackageBase? LastReceivedPackage { get; set; }
     public IWriteablePackage? LastSentPackage { get; set; }
 }

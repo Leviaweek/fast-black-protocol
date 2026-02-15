@@ -1,10 +1,8 @@
-using UdpListener;
-
-namespace UdpServer.Packages.Ack;
+namespace BlackFastProtocol.Package.Ack;
 
 public sealed record AckPackageHandler : IPackageHandler<AckPackage>
 {
-    public async Task HandlePackageAsync(AckPackage package, UdpSessionContext context, CancellationToken cancellationToken)
+    public async Task HandlePackageAsync(AckPackage package, FastBlackSessionContext context, CancellationToken cancellationToken)
     {
         if (context.LastReceivedPackage is { Type: PackageType.Ack })
         {
@@ -18,7 +16,7 @@ public sealed record AckPackageHandler : IPackageHandler<AckPackage>
         await context.Session.SendAsync(buffer, cancellationToken);
     }
 
-    public void HandlePackage(AckPackage package, UdpSessionContext context)
+    public void HandlePackage(AckPackage package, FastBlackSessionContext context)
     {
         if (context.LastReceivedPackage is { Type: PackageType.Ack })
         {

@@ -1,6 +1,6 @@
-namespace UdpServer.Packages;
+namespace BlackFastProtocol.Package;
 
-public interface IReadablePackage<out T> where T : Package, ITypedPackage
+public interface IReadablePackage<out T> where T : PackageBase, ITypedPackage
 {
     public static abstract T ReadPackage(ReadOnlyMemory<byte> buffer);
 }

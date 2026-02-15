@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
+using BlackFastProtocol.Package;
 
 namespace BlackFastProtocol;
 
@@ -36,7 +37,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint)
                 continue;
             }
 
-            var remoteEndpoint = (IPEndPoint)result.RemoteEndPoint!;
+            var remoteEndpoint = (IPEndPoint)result.RemoteEndPoint;
             var id = ReadUserId(owner);
 
             var package = new UdpPackage(owner, length);
@@ -58,7 +59,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint)
                 SingleWriter = false
             });
 
-            client = new BlackFastServerClient(_client, remoteEndpoint, channel, () =>
+            client = new BlackFastServerClient(_client, remoteEndpoint, channel,() =>
             {
                 _clients.TryRemove(id, out _);
                 channel.Writer.TryComplete();
@@ -83,12 +84,13 @@ public sealed class BlackFastListener(IPEndPoint endPoint)
     }
 }
 
-public sealed class FastBlackSessionConext()
+public sealed class FastBlackSessionContext(BlackFastClient client)
 {
-    public bool IsAborted { get; private set; }
+    public BlackFastClient Session { get; } = client;
+    public bool IsAborted { get; set; }
 
-    public void Abort()
-    {
-        IsAborted = true;
-    }
+    public bool IsHandshaked { get; set; }
+    public PackageBase? LastReceivedPackage { get; set; }
+    public IWriteablePackage? LastSentPackage { get; set; }
+    public int CurrentSequence { get; set; }
 }
