@@ -63,8 +63,21 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
         await SendAsync(dataPackage, cancellationToken);
     }
 
-    private async Task SendAsync<T>(T dataPackage, CancellationToken cancellationToken)
-        where T : PackageBase, IWriteablePackage
+    public override void Send(ReadOnlyMemory<byte> buffer)
+    {
+        var dataPackage = new DataPackage(_context.CurrentSequence++, buffer);
+        Send(dataPackage);
+    }
+
+    internal override void Send<T>(T dataPackage)
+    {
+        Span<byte> packageBuffer = stackalloc byte[dataPackage.Length];
+
+        dataPackage.ToBytes(packageBuffer);
+        Client.Send(packageBuffer, _remoteEndPoint);
+    }
+
+    internal override async ValueTask SendAsync<T>(T dataPackage, CancellationToken cancellationToken)
     {
         using var packageBufferOwner = MemoryPool<byte>.Shared.Rent(dataPackage.Length);
 
@@ -72,23 +85,6 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
 
         dataPackage.ToBytes(packageBuffer.Span);
         await Client.SendAsync(packageBuffer, _remoteEndPoint, cancellationToken);
-    }
-
-    public override void Send(ReadOnlyMemory<byte> buffer)
-    {
-        var dataPackage = new DataPackage(_context.CurrentSequence++, buffer);
-        Send(dataPackage);
-    }
-
-    private void Send<T>(T dataPackage) 
-        where T : PackageBase, IWriteablePackage
-    {
-        using var packageBufferOwner = MemoryPool<byte>.Shared.Rent(dataPackage.Length);
-
-        var packageBuffer = packageBufferOwner.Memory[..dataPackage.Length];
-
-        dataPackage.ToBytes(packageBuffer.Span);
-        Client.Send(packageBuffer.Span, _remoteEndPoint);
     }
 
 

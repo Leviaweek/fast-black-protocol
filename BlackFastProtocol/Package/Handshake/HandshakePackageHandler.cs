@@ -21,8 +21,6 @@ public sealed class HandshakePackageHandler: IPackageHandler<HandshakePackage>
         context.IsHandshaked = true;
 
         var handshakeResponse = new HandshakePackage(package.Id + 1);
-        Span<byte> buffer = stackalloc byte[handshakeResponse.Length];
-        handshakeResponse.ToBytes(buffer);
-        context.Session.Send(buffer);
+        context.Session.Send(handshakeResponse);
     }
 }

@@ -11,9 +11,7 @@ public sealed record AckPackageHandler : IPackageHandler<AckPackage>
         
         context.LastReceivedPackage = package;
         var responsePackage = new AckPackage(package.Id + 1);
-        var buffer = new byte[responsePackage.Length];
-        responsePackage.ToBytes(buffer);
-        await context.Session.SendAsync(buffer, cancellationToken);
+        await context.Session.SendAsync(responsePackage, cancellationToken);
     }
 
     public void HandlePackage(AckPackage package, FastBlackSessionContext context)
@@ -25,8 +23,6 @@ public sealed record AckPackageHandler : IPackageHandler<AckPackage>
         
         context.LastReceivedPackage = package;
         var responsePackage = new AckPackage(package.Id + 1);
-        Span<byte> buffer = stackalloc byte[responsePackage.Length];
-        responsePackage.ToBytes(buffer);
-        context.Session.Send(buffer);
+        context.Session.Send(responsePackage);
     }
 }
