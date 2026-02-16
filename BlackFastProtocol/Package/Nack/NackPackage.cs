@@ -2,21 +2,28 @@ using System.Buffers.Binary;
 
 namespace BlackFastProtocol.Package.Nack;
 
-public sealed record NackPackage(int Id, ReadOnlyMemory<int> LostIds)
-    : PackageBase(PackageType.UnAck, Id, sizeof(PackageType) + sizeof(int) + LostIds.Length * sizeof(int)),
+public sealed record NackPackage : PackageBase,
         IWriteablePackage, IReadablePackage<NackPackage>
 {
-    
+    public NackPackage(Guid sessionId, int id, ReadOnlyMemory<int> lostIds) : base(sessionId, PackageType.UnAck, id)
+    {
+        LostIds = lostIds;
+    }
+    private NackPackage(PackageHeader header, ReadOnlyMemory<int> lostIds) : base(header)
+    {
+        LostIds = lostIds;
+    }
+
     public int ToBytes(Span<byte> buffer)
     {
         if (buffer.Length < Length)
             throw new ArgumentException("Buffer too small", nameof(buffer));
         
-        buffer[0] = (byte)Type;
-        BinaryPrimitives.WriteInt32LittleEndian(buffer.Slice(1, 4), Id);
+        Header.ToBytes(buffer);
+        
         for (var i = 0; i < LostIds.Length; i++)
         {
-            BinaryPrimitives.WriteInt32LittleEndian(buffer.Slice(5 + i * 4, 4), LostIds.Span[i]);
+            BinaryPrimitives.WriteInt32LittleEndian(buffer.Slice(Header.Length + i * 4, 4), LostIds.Span[i]);
         }
 
         return Length;
@@ -29,13 +36,18 @@ public sealed record NackPackage(int Id, ReadOnlyMemory<int> LostIds)
         
         var span = buffer.Span;
         
-        var id = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(1, 4));
-        var length = (buffer.Length - 5) / 4;
+        var header = PackageHeader.ReadPackage(buffer);
+        
+        var length = (buffer.Length - header.Length) / sizeof(int);
         var lostIds = new int[length];
         for (var i = 0; i < length; i++)
         {
-            lostIds[i] = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(5 + i * 4, 4));
+            lostIds[i] = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(header.Length + i * 4, 4));
         }
-        return new NackPackage(id, lostIds);
+        return new NackPackage(header, lostIds);
     }
+    
+    public ReadOnlyMemory<int> LostIds { get; }
+
+    public override int Length => Header.Length + LostIds.Length * sizeof(int);
 }

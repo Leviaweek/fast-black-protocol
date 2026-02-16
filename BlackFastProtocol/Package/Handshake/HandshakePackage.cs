@@ -2,28 +2,31 @@ using System.Buffers.Binary;
 
 namespace BlackFastProtocol.Package.Handshake;
 
-public sealed record HandshakePackage(int Id)
-    : PackageBase(PackageType.Handshake, Id, sizeof(PackageType) + sizeof(int)), IWriteablePackage,
+public sealed record HandshakePackage : PackageBase, IWriteablePackage,
         IReadablePackage<HandshakePackage>
 {
+    public HandshakePackage(Guid sessionId, int id) : base(new PackageHeader(sessionId, PackageType.Handshake, id)) { }
+    private HandshakePackage(PackageHeader header) : base(header) { }
+
     public int ToBytes(Span<byte> buffer)
     {
         if (buffer.Length < Length)
             throw new ArgumentException("Buffer too small", nameof(buffer));
         
-        buffer[0] = (byte)Type;
-        BinaryPrimitives.WriteInt32LittleEndian(buffer.Slice(1, 4), Id);
+        Header.ToBytes(buffer);
+        
         return Length;
     }
 
     public static HandshakePackage ReadPackage(ReadOnlyMemory<byte> buffer)
     {
-        if (buffer.Length < 5)
+        if (buffer.Length < 21)
             throw new ArgumentException("Buffer too small", nameof(buffer));
         
-        var span = buffer.Span;
+        var header = PackageHeader.ReadPackage(buffer);
         
-        var id = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(1, 4));
-        return new HandshakePackage(id);
+        return new HandshakePackage(header);
     }
+    
+    public override int Length => Header.Length;
 }

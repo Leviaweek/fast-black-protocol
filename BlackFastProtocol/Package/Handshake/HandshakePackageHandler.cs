@@ -4,23 +4,23 @@ public sealed class HandshakePackageHandler: IPackageHandler<HandshakePackage>
 {
     public async Task HandlePackageAsync(HandshakePackage package, FastBlackSessionContext context, CancellationToken cancellationToken)
     {
-        Console.WriteLine($"Received handshake from {context.Session.EndPoint} with id {package.Id}");
+        Console.WriteLine($"Received handshake from {context.Session.EndPoint} with id {package.Header.Id}");
 
-        context.IsHandshaked = true;
+        context.IsHandshake = true;
         
-        var handshakeResponse = new HandshakePackage(package.Id + 1);
-        var buffer = new byte[handshakeResponse.Length];
-        handshakeResponse.ToBytes(buffer);
-        await context.Session.SendAsync(buffer, cancellationToken);
+        var nextSequence = context.GetNextSequence();
+        var handshakeResponse = new HandshakePackage(context.SessionId, nextSequence);
+        await context.Session.SendAsync(handshakeResponse, cancellationToken);
     }
 
     public void HandlePackage(HandshakePackage package, FastBlackSessionContext context)
     {
-        Console.WriteLine($"Received handshake from {context.Session.EndPoint} with id {package.Id}");
+        Console.WriteLine($"Received handshake from {context.Session.EndPoint} with id {package.Header.Id}");
         
-        context.IsHandshaked = true;
+        context.IsHandshake = true;
 
-        var handshakeResponse = new HandshakePackage(package.Id + 1);
+        var nextSequence = context.GetNextSequence();
+        var handshakeResponse = new HandshakePackage(context.SessionId, nextSequence);
         context.Session.Send(handshakeResponse);
     }
 }

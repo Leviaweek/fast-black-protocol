@@ -1,6 +1,6 @@
 namespace BlackFastProtocol.Package;
 
-public interface IPackageHandler<in T> where T : PackageBase, ITypedPackage, IReadablePackage<T>
+public interface IPackageHandler<in T> where T : IReadablePackage<T>
 {
     public Task HandlePackageAsync(T package, FastBlackSessionContext context, CancellationToken cancellationToken);
     public void HandlePackage(T package, FastBlackSessionContext context);

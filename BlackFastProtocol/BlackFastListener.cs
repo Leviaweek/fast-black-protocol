@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
@@ -7,7 +8,7 @@ using BlackFastProtocol.Package;
 
 namespace BlackFastProtocol;
 
-public sealed class BlackFastListener(IPEndPoint endPoint)
+public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
 {
     private readonly UdpClient _client = new(endPoint);
     
@@ -38,11 +39,11 @@ public sealed class BlackFastListener(IPEndPoint endPoint)
             }
 
             var remoteEndpoint = (IPEndPoint)result.RemoteEndPoint;
-            var id = ReadUserId(owner);
+            var header = ReadHeader(owner);
 
-            var package = new UdpPackage(owner, length);
+            var package = new UdpPackage(header, owner, length);
 
-            if (_clients.TryGetValue(id, out var client))
+            if (_clients.TryGetValue(header.SessionId, out var client))
             {
                 client.UpdateEndpoint(remoteEndpoint);
 
@@ -59,13 +60,13 @@ public sealed class BlackFastListener(IPEndPoint endPoint)
                 SingleWriter = false
             });
 
-            client = new BlackFastServerClient(_client, remoteEndpoint, channel,() =>
+            client = new BlackFastServerClient(_client, remoteEndpoint, channel, header.SessionId,() =>
             {
-                _clients.TryRemove(id, out _);
+                _clients.TryRemove(header.SessionId, out _);
                 channel.Writer.TryComplete();
-            });
+            }, token);
 
-            if (_clients.TryAdd(id, client))
+            if (_clients.TryAdd(header.SessionId, client))
             {
                 await _uniqueClients.Writer.WriteAsync(client, token);
                 await channel.Writer.WriteAsync(package, token);
@@ -77,20 +78,35 @@ public sealed class BlackFastListener(IPEndPoint endPoint)
             }
         }
     }
+    
+    public Task StartAsync(CancellationToken token) => ReceiveLoop(token);
 
-    private static Guid ReadUserId(IMemoryOwner<byte> owner)
+    private static PackageHeader ReadHeader(IMemoryOwner<byte> owner) => PackageHeader.ReadPackage(owner.Memory);
+
+    public void Dispose()
     {
-        return new Guid(owner.Memory.Span[..16]);
+        GC.SuppressFinalize(this);
+        _client.Dispose();
+    }
+    
+    ~BlackFastListener()
+    {
+        Dispose();
     }
 }
 
-public sealed class FastBlackSessionContext(BlackFastClient client)
+public sealed class FastBlackSessionContext(BlackFastClient client, Guid sessionId)
 {
     public BlackFastClient Session { get; } = client;
     public bool IsAborted { get; set; }
 
-    public bool IsHandshaked { get; set; }
+    public bool IsHandshake { get; set; }
     public PackageBase? LastReceivedPackage { get; set; }
     public IWriteablePackage? LastSentPackage { get; set; }
-    public int CurrentSequence { get; set; }
+    
+    private int _currentSequence = int.MinValue;
+    public int CurrentSequence => _currentSequence;
+    
+    public int GetNextSequence() => Interlocked.Increment(ref _currentSequence);
+    public Guid SessionId { get; } = sessionId;
 }

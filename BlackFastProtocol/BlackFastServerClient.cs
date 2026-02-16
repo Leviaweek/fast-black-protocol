@@ -23,12 +23,14 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
     public BlackFastServerClient(UdpClient client,
         IPEndPoint remoteEndPoint,
         Channel<UdpPackage> dataChannel,
-        Action dispose) : base(client)
+        Guid sessionId,
+        Action dispose, CancellationToken cancellationToken) : base(client)
     {
         _dispose = dispose;
         _remoteEndPoint = remoteEndPoint;
         DataChannel = dataChannel;
-        _context = new FastBlackSessionContext(this);
+        _context = new FastBlackSessionContext(this, sessionId);
+        _ = ReadPackagesAsync(cancellationToken);
     }
 
     public override IPEndPoint EndPoint => _remoteEndPoint;
@@ -44,10 +46,7 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
         {
             using (udpPackage)
             {
-                var span = udpPackage.Data.Span;
-                var packageType = (PackageType)span[0];
-
-                await _handlers[packageType].HandlePackageAsync(udpPackage.Data, _context, cancellationToken);
+                await _handlers[udpPackage.Header.Type].HandlePackageAsync(udpPackage.Data, _context, cancellationToken);
 
                 if (!_context.IsAborted) continue;
                 Dispose();
@@ -59,13 +58,15 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
 
     public override async ValueTask SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
     {
-        var dataPackage = new DataPackage(_context.CurrentSequence++, buffer);
+        var nextSequence = _context.GetNextSequence();
+        var dataPackage = new DataPackage(_context.SessionId, nextSequence, buffer);
         await SendAsync(dataPackage, cancellationToken);
     }
 
     public override void Send(ReadOnlyMemory<byte> buffer)
     {
-        var dataPackage = new DataPackage(_context.CurrentSequence++, buffer);
+        var nextSequence = _context.GetNextSequence();
+        var dataPackage = new DataPackage(_context.SessionId, nextSequence, buffer);
         Send(dataPackage);
     }
 

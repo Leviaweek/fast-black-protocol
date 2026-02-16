@@ -2,27 +2,31 @@ using System.Buffers.Binary;
 
 namespace BlackFastProtocol.Package.Ack;
 
-public sealed record AckPackage(int Id) : PackageBase(PackageType.Ack, Id, sizeof(PackageType) + sizeof(int)),
+public sealed record AckPackage : PackageBase,
     IWriteablePackage, IReadablePackage<AckPackage>
 {
+    public AckPackage(Guid sessionId, int id) : base(sessionId, PackageType.Ack, id) { }
+    private AckPackage(PackageHeader header) : base(header) { }
+
     public int ToBytes(Span<byte> buffer)
     {
         if (buffer.Length < Length)
             throw new ArgumentException("Buffer too small", nameof(buffer));
         
-        buffer[0] = (byte)Type;
-        BinaryPrimitives.WriteInt32LittleEndian(buffer.Slice(1, 4), Id);
+        Header.ToBytes(buffer);
+        
         return Length;
     }
 
     public static AckPackage ReadPackage(ReadOnlyMemory<byte> buffer)
     {
-        if (buffer.Length < 5)
+        if (buffer.Length < 21)
             throw new ArgumentException("Buffer too small", nameof(buffer));
         
-        var span = buffer.Span;
+        var header = PackageHeader.ReadPackage(buffer);
         
-        var id = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(1, 4));
-        return new AckPackage(id);
+        return new AckPackage(header);
     }
+
+    public override int Length => Header.Length;
 }

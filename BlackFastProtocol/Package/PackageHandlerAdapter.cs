@@ -1,7 +1,7 @@
 namespace BlackFastProtocol.Package;
 
 public sealed class PackageHandlerAdapter<T>(IPackageHandler<T> innerHandler) : IPackageHandler
-    where T : PackageBase, IReadablePackage<T>
+    where T : IReadablePackage<T>
 {
     public async Task HandlePackageAsync(ReadOnlyMemory<byte> buffer, FastBlackSessionContext context, CancellationToken cancellationToken)
     {

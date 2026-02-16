@@ -2,19 +2,20 @@ using System.Buffers.Binary;
 
 namespace BlackFastProtocol.Package.DataHeader;
 
-public sealed record DataHeaderPackage(int Id, int DataLength)
-    : PackageBase(PackageType.DataHeader,
-        Id,
-        sizeof(PackageType) + sizeof(int) + sizeof(int)),IWriteablePackage, IReadablePackage<DataHeaderPackage>
+public sealed record DataHeaderPackage : PackageBase,IWriteablePackage, IReadablePackage<DataHeaderPackage>
 {
+    public DataHeaderPackage(Guid sessionId, int id, int dataLength) : base(sessionId, PackageType.DataHeader, id) { DataLength = dataLength; }
+    private DataHeaderPackage(PackageHeader header, int dataLength) : base(header) { DataLength = dataLength; }
+
     public int ToBytes(Span<byte> buffer)
     {
         if (buffer.Length < Length)
             throw new ArgumentException("Buffer too small", nameof(buffer));
         
-        buffer[0] = (byte)Type;
-        BinaryPrimitives.WriteInt32LittleEndian(buffer.Slice(1, 4), Id);
-        BinaryPrimitives.WriteInt32LittleEndian(buffer.Slice(5, 4), DataLength);
+        Header.ToBytes(buffer);
+        
+        BinaryPrimitives.WriteInt32LittleEndian(buffer.Slice(Header.Length, 4), DataLength);
+        
         return Length;
     }
 
@@ -25,8 +26,12 @@ public sealed record DataHeaderPackage(int Id, int DataLength)
         
         var span = buffer.Span;
 
-        var id = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(1, 4));
-        var dataLength = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(5, 4));
-        return new DataHeaderPackage(id, dataLength);
+        var header = PackageHeader.ReadPackage(buffer);
+        
+        var dataLength = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(header.Length, 4));
+        
+        return new DataHeaderPackage(header, dataLength);
     }
+    public int DataLength { get; }
+    public override int Length => Header.Length + sizeof(int);
 }

@@ -3,18 +3,20 @@ using System.Buffers.Binary;
 
 namespace BlackFastProtocol.Package.DataFrame;
 
-public sealed record DataFramePackage(int Id, ReadOnlyMemory<byte> Data)
-    : PackageBase(PackageType.DataFrame, Id, sizeof(PackageType) + sizeof(int) + Data.Length), IWriteablePackage,
+public sealed record DataFramePackage : PackageBase, IWriteablePackage,
         IReadablePackage<DataFramePackage>
 {
+    public DataFramePackage(Guid sessionId, int id, ReadOnlyMemory<byte> data) : base(sessionId, PackageType.DataFrame, id) { Data = data; }
+    private DataFramePackage(PackageHeader header, ReadOnlyMemory<byte> data) : base(header) { Data = data; }
+
     public int ToBytes(Span<byte> buffer)
     {
         if (buffer.Length < Length)
             throw new ArgumentException("Buffer too small", nameof(buffer));
         
-        buffer[0] = (byte)Type;
-        BinaryPrimitives.WriteInt32LittleEndian(buffer.Slice(1, 4), Id);
-        Data.Span.CopyTo(buffer.Slice(5, Data.Length));
+        Header.ToBytes(buffer);
+        
+        Data.Span.CopyTo(buffer.Slice(Header.Length, Data.Length));
         return Length;
     }
 
@@ -22,11 +24,14 @@ public sealed record DataFramePackage(int Id, ReadOnlyMemory<byte> Data)
     {
         if (buffer.Length < 5)
             throw new ArgumentException("Buffer too small", nameof(buffer));
+
+        var header = PackageHeader.ReadPackage(buffer);
         
-        var span = buffer.Span;
+        var data = buffer[header.Length..].ToArray();
         
-        var id = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(1, 4));
-        var data = buffer[5..];
-        return new DataFramePackage(id, data);
+        return new DataFramePackage(header, data);
     }
+    
+    public ReadOnlyMemory<byte> Data { get; }
+    public override int Length => Header.Length + Data.Length;
 }
