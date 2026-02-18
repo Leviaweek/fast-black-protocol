@@ -1,10 +1,10 @@
 namespace BlackFastProtocol.Package.Ack;
 
-public sealed record AckPackageHandler : IPackageHandler<AckPackage>
+public sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
 {
-    public async Task HandlePackageAsync(AckPackage package, FastBlackSessionContext context, CancellationToken cancellationToken)
+    public async Task HandlePackageAsync(AckPackageBody package, FastBlackSessionContext context, CancellationToken cancellationToken)
     {
-        if (context.LastReceivedPackage is { Header.Type: PackageType.Ack })
+        if (context.LastSentPackage is { Header.Type: PackageType.Ack })
         {
             return;
         }
@@ -13,13 +13,16 @@ public sealed record AckPackageHandler : IPackageHandler<AckPackage>
         
         var nextSequence = context.GetNextSequence();
         
-        var responsePackage = new AckPackage(context.SessionId, nextSequence);
+        var header = new PackageHeader(context.SessionId, PackageType.Ack, nextSequence);
+        var ack = new AckPackageBody();
+        var responsePackage = new ProtocolPackage(header, ack);
+
         await context.Session.SendAsync(responsePackage, cancellationToken);
     }
 
-    public void HandlePackage(AckPackage package, FastBlackSessionContext context)
+    public void HandlePackage(AckPackageBody package, FastBlackSessionContext context)
     {
-        if (context.LastReceivedPackage is { Header.Type: PackageType.Ack })
+        if (context.LastSentPackage is { Header.Type: PackageType.Ack })
         {
             return;
         }
@@ -28,7 +31,10 @@ public sealed record AckPackageHandler : IPackageHandler<AckPackage>
         
         var nextSequence = context.GetNextSequence();
         
-        var responsePackage = new AckPackage(context.SessionId, nextSequence);
+        var header = new PackageHeader(context.SessionId, PackageType.Ack, nextSequence);
+        var ack = new AckPackageBody();
+        var responsePackage = new ProtocolPackage(header, ack);
+
         context.Session.Send(responsePackage);
     }
 }

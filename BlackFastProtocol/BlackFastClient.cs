@@ -8,8 +8,8 @@ public abstract class BlackFastClient(UdpClient client)
 {
     public abstract ValueTask SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken);
     public abstract void Send(ReadOnlyMemory<byte> buffer);
-    internal abstract void Send<TPackage>(TPackage package) where TPackage : PackageBase, IWriteablePackage;
-    internal abstract ValueTask SendAsync<TPackage>(TPackage package, CancellationToken cancellationToken) where TPackage : PackageBase, IWriteablePackage;
+    internal abstract void Send(ProtocolPackage package);
+    internal abstract ValueTask SendAsync(ProtocolPackage package, CancellationToken cancellationToken);
     public abstract IPEndPoint EndPoint { get; }
     private protected readonly UdpClient Client = client;
 }

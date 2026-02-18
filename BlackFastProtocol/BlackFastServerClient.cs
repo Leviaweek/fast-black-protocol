@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
@@ -10,19 +9,18 @@ namespace BlackFastProtocol;
 
 public sealed class BlackFastServerClient : BlackFastClient, IDisposable
 {
-    private readonly Dictionary<PackageType, IPackageHandler> _handlers = new() {
-        [PackageType.Handshake] = new PackageHandlerAdapter<HandshakePackage>(new HandshakePackageHandler()),
-        
+    private readonly Dictionary<PackageType, IBodyHandler> _handlers = new() {
+        [PackageType.Handshake] = new BodyHandlerAdapter<HandshakeBody>(new HandshakeBodyHandler()),
     };
 
     private volatile IPEndPoint _remoteEndPoint;
-    internal readonly Channel<UdpPackage> DataChannel;
+    internal readonly Channel<ProtocolPackage> DataChannel;
     private readonly Action _dispose;
     private readonly FastBlackSessionContext _context;
 
     public BlackFastServerClient(UdpClient client,
         IPEndPoint remoteEndPoint,
-        Channel<UdpPackage> dataChannel,
+        Channel<ProtocolPackage> dataChannel,
         Guid sessionId,
         Action dispose, CancellationToken cancellationToken) : base(client)
     {
@@ -42,56 +40,56 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
 
     private async Task ReadPackagesAsync(CancellationToken cancellationToken)
     {
-        await foreach (var udpPackage in DataChannel.Reader.ReadAllAsync(cancellationToken))
+        await foreach (var protoctolPackage in DataChannel.Reader.ReadAllAsync(cancellationToken))
         {
-            using (udpPackage)
-            {
-                await _handlers[udpPackage.Header.Type].HandlePackageAsync(udpPackage.Data, _context, cancellationToken);
+            await _handlers[protoctolPackage.Header.Type].HandlePackageAsync(protoctolPackage, _context, cancellationToken);
 
-                if (!_context.IsAborted) continue;
-                Dispose();
-                break;
-            }
-
+            if (!_context.IsAborted) continue;
+            Dispose();
+            break;
         }
     }
 
     public override async ValueTask SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
     {
         var nextSequence = _context.GetNextSequence();
-        var dataPackage = new DataPackage(_context.SessionId, nextSequence, buffer);
-        await SendAsync(dataPackage, cancellationToken);
+        var header = new PackageHeader(_context.SessionId, PackageType.DataPackage, nextSequence);
+        var dataPackage = new DataPackageBody(buffer);
+        var protocolPackage = new ProtocolPackage(header, dataPackage);
+        await SendAsync(protocolPackage, cancellationToken);
     }
 
     public override void Send(ReadOnlyMemory<byte> buffer)
     {
         var nextSequence = _context.GetNextSequence();
-        var dataPackage = new DataPackage(_context.SessionId, nextSequence, buffer);
-        Send(dataPackage);
+        var header = new PackageHeader(_context.SessionId, PackageType.DataPackage, nextSequence);
+        var dataPackage = new DataPackageBody(buffer);
+        var protocolPackage = new ProtocolPackage(header, dataPackage);
+        Send(protocolPackage);
     }
 
-    internal override void Send<T>(T dataPackage)
+    internal override void Send(ProtocolPackage package)
     {
-        Span<byte> packageBuffer = stackalloc byte[dataPackage.Length];
-
-        dataPackage.ToBytes(packageBuffer);
-        Client.Send(packageBuffer, _remoteEndPoint);
+        var buffer = new byte[package.Length].AsSpan();
+        package.Header.ToBytes(buffer);
+        package.Body.ToBytes(buffer[package.Header.Length..]);
+        Client.Send(buffer, _remoteEndPoint);
     }
 
-    internal override async ValueTask SendAsync<T>(T dataPackage, CancellationToken cancellationToken)
+    internal override async ValueTask SendAsync(ProtocolPackage package, CancellationToken cancellationToken)
     {
-        using var packageBufferOwner = MemoryPool<byte>.Shared.Rent(dataPackage.Length);
-
-        var packageBuffer = packageBufferOwner.Memory[..dataPackage.Length];
-
-        dataPackage.ToBytes(packageBuffer.Span);
-        await Client.SendAsync(packageBuffer, _remoteEndPoint, cancellationToken);
+        var buffer = new byte[package.Length].AsMemory();
+        var span = buffer.Span;
+        package.Header.ToBytes(span);
+        package.Body.ToBytes(span[package.Header.Length..]);
+        await Client.SendAsync(buffer, _remoteEndPoint, cancellationToken);
     }
 
 
     public void Dispose()
     {
         GC.SuppressFinalize(this);
+        DataChannel.Writer.TryComplete();
         _dispose();
     }
 

@@ -31,13 +31,13 @@ public class Tests
     {
             _ = _listener.StartAsync(_cts.Token);
             var task = _listener.AcceptClientAsync(_cts.Token);
-            var handshakePackage = new HandshakePackage(Guid.NewGuid(), int.MinValue);
+            var handshakePackage = new HandshakeBody(Guid.NewGuid(), int.MinValue);
             var buffer = new byte[handshakePackage.Length];
             handshakePackage.ToBytes(buffer);
             await _client.SendAsync(buffer, new IPEndPoint(IPAddress.Loopback, 12345));
             var client = await task;
             var response = await _client.ReceiveAsync();
-            var responsePackage = HandshakePackage.ReadPackage(response.Buffer);
+            var responsePackage = HandshakeBody.ReadPackage(response.Buffer);
             Assert.That(responsePackage.Header.Id, Is.EqualTo(handshakePackage.Header.Id + 1));
         
     }
