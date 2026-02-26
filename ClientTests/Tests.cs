@@ -1,6 +1,9 @@
 ﻿using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using BlackFastProtocol;
+using BlackFastProtocol.Package;
+using BlackFastProtocol.Package.DataPackage;
 using BlackFastProtocol.Package.Handshake;
 
 namespace ClientTests;
@@ -27,18 +30,44 @@ public class Tests
     }
 
     [Test]
-    public async Task Test1()
+    public async Task TestConnection()
     {
             _ = _listener.StartAsync(_cts.Token);
             var task = _listener.AcceptClientAsync(_cts.Token);
-            var handshakePackage = new HandshakeBody(Guid.NewGuid(), int.MinValue);
-            var buffer = new byte[handshakePackage.Length];
-            handshakePackage.ToBytes(buffer);
+            var header = new PackageHeader(Guid.NewGuid(), PackageType.Handshake, int.MinValue);
+            var body = new HandshakeBody();
+            var buffer = new byte[body.Length + header.Length];
+            header.WriteData(buffer);
+            body.WriteData(buffer, header.Length);
             await _client.SendAsync(buffer, new IPEndPoint(IPAddress.Loopback, 12345));
             var client = await task;
             var response = await _client.ReceiveAsync();
-            var responsePackage = HandshakeBody.ReadPackage(response.Buffer);
-            Assert.That(responsePackage.Header.Id, Is.EqualTo(handshakePackage.Header.Id + 1));
+            var responseBuffer = response.Buffer;
+            var responseHeader = PackageHeader.ReadData(responseBuffer);
+            var responseBody = HandshakeBody.ReadData(responseBuffer);
+            Assert.That(responseHeader.Sequence, Is.EqualTo(header.Sequence + 1));
         
+    }
+
+    [Test]
+    public async Task TestDataPackage()
+    {
+        _ = _listener.StartAsync(_cts.Token);
+        var task = _listener.AcceptClientAsync(_cts.Token);
+        var header = new PackageHeader(Guid.NewGuid(), PackageType.Handshake, int.MinValue);
+        var body = new HandshakeBody();
+        var buffer = new byte[body.Length + header.Length];
+        header.WriteData(buffer);
+        body.WriteData(buffer, header.Length);
+        await _client.SendAsync(buffer, new IPEndPoint(IPAddress.Loopback, 12345));
+        var client = await task;
+        var response = await _client.ReceiveAsync();
+        var responseBuffer = response.Buffer;
+        var responseHeader = PackageHeader.ReadData(responseBuffer);
+        var responseBody = HandshakeBody.ReadData(responseBuffer);
+
+        var newHeader = new PackageHeader(responseHeader.SessionId, PackageType.DataPackage, responseHeader.Sequence + 1);
+        var str = Encoding.UTF8.GetBytes("Hello world");
+        var newBody = new DataPackageBody(str);
     }
 }

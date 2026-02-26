@@ -4,7 +4,7 @@ namespace BlackFastProtocol.Package.DataHeader;
 
 public sealed record DataHeaderBody(int DataLength) : IPackageBody, IReadableData<DataHeaderBody>
 {
-    public int ToBytes(Span<byte> buffer, int offset = 0)
+    public int WriteData(Span<byte> buffer, int offset = 0)
     {
         if (buffer.Length < Length + offset)
             throw new ArgumentException("Buffer too small", nameof(buffer));
@@ -14,7 +14,7 @@ public sealed record DataHeaderBody(int DataLength) : IPackageBody, IReadableDat
         return Length;
     }
 
-    public static DataHeaderBody ReadPackage(ReadOnlyMemory<byte> buffer, int offset = 0)
+    public static DataHeaderBody ReadData(ReadOnlyMemory<byte> buffer, int offset = 0)
     {
         if (buffer.Length < offset + 4)
             throw new ArgumentException("Buffer too small", nameof(buffer));

@@ -3,17 +3,11 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
 using BlackFastProtocol.Package;
-using BlackFastProtocol.Package.Handshake;
 
 namespace BlackFastProtocol;
 
 public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
 {
-    private readonly Dictionary<PackageType, Func<ReadOnlyMemory<byte>, IPackageBody>> _bodyReaders = new() {
-        [PackageType.Handshake] = buffer => HandshakeBody.ReadPackage(buffer),
-    };
-
-
     private readonly UdpClient _client = new(endPoint);
     
     private readonly ConcurrentDictionary<Guid, BlackFastServerClient> _clients = new();
@@ -23,6 +17,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
     public async Task<BlackFastClient> AcceptClientAsync(CancellationToken token)
     {
         var client = await _uniqueClients.Reader.ReadAsync(token);
+        client.Start();
         return client;
     }
 
@@ -43,33 +38,27 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
             }
 
             var remoteEndpoint = (IPEndPoint)result.RemoteEndPoint;
-            var header = PackageHeader.ReadPackage(memory);
-            var body = _bodyReaders[header.Type](memory[header.Length..length]);
+            var header = PackageHeader.ReadData(memory);
+            var body = PackageHelper.BodyReaders[header.Type](memory[header.Length..length]);
             var package = new ProtocolPackage(header, body);
             
             if (_clients.TryGetValue(header.SessionId, out var client))
             {
-                client.DataChannel.Writer.TryWrite(package);
+                await client.ReadPackageAsync(package, token);
                 client.UpdateEndpoint(remoteEndpoint);
                 continue;
             }
 
-            var channel = Channel.CreateUnbounded<ProtocolPackage>(new UnboundedChannelOptions
-            {
-                SingleReader = true,
-                SingleWriter = false
-            });
-
             var sessionId = header.SessionId;
-            client = new BlackFastServerClient(_client, remoteEndpoint, channel, header.SessionId,() =>
+            client = new BlackFastServerClient(_client, remoteEndpoint, header.SessionId,() =>
             {
                 _clients.TryRemove(sessionId, out _);
-            }, token);
+            });
 
             if (_clients.TryAdd(header.SessionId, client))
             {
                 await _uniqueClients.Writer.WriteAsync(client, token);
-                await channel.Writer.WriteAsync(package, token);
+                await client.ReadPackageAsync(package, token);
             }
             else
             {
@@ -77,17 +66,15 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
             }
         }
     }
-    
-    public Task StartAsync(CancellationToken token) => ReceiveLoop(token);
+
+    public Task StartAsync(CancellationToken token)
+    {
+        _ = Enumerable.Range(0, 4).Select(_ => ReceiveLoop(token));
+        return Task.CompletedTask;
+    }
 
     public void Dispose()
     {
-        GC.SuppressFinalize(this);
         _client.Dispose();
-    }
-    
-    ~BlackFastListener()
-    {
-        Dispose();
     }
 }

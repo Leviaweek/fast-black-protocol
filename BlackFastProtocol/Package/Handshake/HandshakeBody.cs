@@ -3,7 +3,7 @@ namespace BlackFastProtocol.Package.Handshake;
 public sealed record HandshakeBody : IPackageBody,
         IReadableData<HandshakeBody>
 {
-    public int ToBytes(Span<byte> buffer, int offset = 0)
+    public int WriteData(Span<byte> buffer, int offset = 0)
     {
         if (buffer.Length < Length + offset)
             throw new ArgumentException("Buffer too small", nameof(buffer));
@@ -11,9 +11,9 @@ public sealed record HandshakeBody : IPackageBody,
         return Length;
     }
 
-    public static HandshakeBody ReadPackage(ReadOnlyMemory<byte> buffer, int offset = 0)
+    public static HandshakeBody ReadData(ReadOnlyMemory<byte> buffer, int offset = 0)
     {
-        if (buffer.Length < offset + 21)
+        if (buffer.Length < offset)
             throw new ArgumentException("Buffer too small", nameof(buffer));
         
         return new HandshakeBody();

@@ -2,5 +2,5 @@ namespace BlackFastProtocol.Package;
 
 public interface IWriteableData
 {
-    public int ToBytes(Span<byte> buffer, int offset = 0);
+    public int WriteData(Span<byte> buffer, int offset = 0);
 }

@@ -11,12 +11,12 @@ public sealed class FastBlackSessionContext(BlackFastClient client, Guid session
   public IPackageBody? LastReceivedPackage { get; set; }
   public ProtocolPackage? LastSentPackage { get; set; }
     
-  private int _currentSequence = int.MinValue;
-  public int CurrentSequence { 
+  private uint _currentSequence = uint.MaxValue;
+  public uint CurrentSequence { 
     get => _currentSequence; 
     set => Interlocked.Exchange(ref _currentSequence, value); 
   }
     
-  public int GetNextSequence() => Interlocked.Increment(ref _currentSequence);
+  public uint GetNextSequence() => Interlocked.Increment(ref _currentSequence);
   public Guid SessionId { get; } = sessionId;
 }
