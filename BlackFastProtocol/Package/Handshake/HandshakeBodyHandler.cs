@@ -5,9 +5,14 @@ public sealed class HandshakeBodyHandler: IBodyHandler<HandshakeBody>
     public async Task HandlePackageAsync(HandshakeBody package, FastBlackSessionContext context, CancellationToken cancellationToken)
     {
         Console.WriteLine($"Received handshake from {context.Session.EndPoint}");
-
-        context.IsHandshake = true;
         context.LastReceivedPackage = package;
+
+        if (context.LastSentPackage is { Header.Type: PackageType.Handshake })
+        {
+            return;
+        }
+        
+        context.IsHandshake = true;
         
         var nextSequence = context.GetNextSequence();
         var header = new PackageHeader(context.SessionId, PackageType.Handshake, nextSequence);

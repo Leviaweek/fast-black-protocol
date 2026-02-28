@@ -24,7 +24,7 @@ public sealed unsafe record PackageHeader : ITypedPackage, IWriteableData, IRead
     if (buffer.Length < Length + offset)
       throw new ArgumentException("Buffer too small", nameof(buffer));
         
-    SessionId.TryWriteBytes(buffer.Slice(offset));
+    SessionId.TryWriteBytes(buffer[offset..]);
     buffer[offset + 16] = Unsafe.As<PackageType, byte>(ref _type);
     BinaryPrimitives.WriteUInt32LittleEndian(buffer.Slice(offset + 17, 4), Sequence);
     return Length;

@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace BlackFastProtocol.Package;
 
 public sealed class ProtocolPackage: ILengthPackage

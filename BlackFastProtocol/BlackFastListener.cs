@@ -69,8 +69,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
 
     public Task StartAsync(CancellationToken token)
     {
-        _ = Enumerable.Range(0, 4).Select(_ => ReceiveLoop(token));
-        return Task.CompletedTask;
+        return ReceiveLoop(token);
     }
 
     public void Dispose()
@@ -78,3 +77,9 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
         _client.Dispose();
     }
 }
+
+//adapter(memory)
+//innerHandler<T>
+
+//T.ReadPackage(memory)
+//innerHandler<T>(package)

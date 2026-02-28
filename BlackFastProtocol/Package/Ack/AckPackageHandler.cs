@@ -4,6 +4,11 @@ public sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
 {
     public async Task HandlePackageAsync(AckPackageBody package, FastBlackSessionContext context, CancellationToken cancellationToken)
     {
+        if (!context.IsHandshake)
+        {
+            return;
+        }
+        
         if (context.LastSentPackage is { Header.Type: PackageType.Ack })
         {
             return;

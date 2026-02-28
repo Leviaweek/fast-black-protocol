@@ -7,8 +7,6 @@ public sealed class BodyHandlerAdapter<T>(IBodyHandler<T> innerHandler) : IBodyH
 {
     public async Task HandlePackageAsync(ProtocolPackage package, FastBlackSessionContext context, CancellationToken cancellationToken)
     {
-        context.CurrentSequence = package.Header.Sequence;
-
         var packageBody = Unsafe.As<T>(package.Body);
 
         await innerHandler.HandlePackageAsync(packageBody, context, cancellationToken);

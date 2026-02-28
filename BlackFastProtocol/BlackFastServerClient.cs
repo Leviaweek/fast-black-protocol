@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading.Channels;
 using BlackFastProtocol.Package;
 using BlackFastProtocol.Package.DataPackage;
 
@@ -13,6 +14,8 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
     private readonly FastBlackSessionContext _context;
     private readonly ReorderingBuffer _reorderingBuffer;
     private bool _isStarted;
+    private volatile uint _expectedSequence = uint.MinValue;
+    private readonly ChannelReader<byte[]> _reader;
 
     public BlackFastServerClient(UdpClient client,
         IPEndPoint remoteEndPoint,
@@ -21,14 +24,17 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
     {
         _dispose = dispose;
         _remoteEndPoint = remoteEndPoint;
-        _context = new FastBlackSessionContext(this, sessionId);
+        EndPoint = client.Client.LocalEndPoint as IPEndPoint ?? throw new InvalidOperationException("LocalEndPoint is not an IPEndPoint");
+        var channel = Channel.CreateUnbounded<byte[]>();
+        _context = new FastBlackSessionContext(this, sessionId, channel.Writer);
+        _reader = channel.Reader;
         _reorderingBuffer = new ReorderingBuffer();
     }
 
     internal void Start() => _isStarted = true;
 
 
-    public override IPEndPoint EndPoint => _remoteEndPoint;
+    public override IPEndPoint EndPoint { get; }
 
     internal void UpdateEndpoint(IPEndPoint remoteEndPoint)
     {
@@ -37,19 +43,38 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
 
     internal async Task ReadPackageAsync(ProtocolPackage package, CancellationToken cancellationToken)
     {
-        if (!_reorderingBuffer.TryAdd(package))
+        var diff = (int)package.Header.Sequence - _expectedSequence;
+        if (diff < 0 || diff >= _reorderingBuffer.Length)
         {
             return;
         }
 
-        if (!_isStarted && _context.IsHandshake)
+        if (package.Header.Sequence != _expectedSequence)
+        {
+            if (!_reorderingBuffer.TryAdd(package))
+            {
+                throw new ArgumentException("Incorrect argument", nameof(package));
+            }
+
+            return;
+        }
+        
+        if (!_isStarted)
         {
             return;
         }
 
-        foreach (var orderedPackage in _reorderingBuffer.GetOrderedPackages())
+        Interlocked.Increment(ref _expectedSequence);
+        await PackageHelper.Handlers[package.Header.Type].HandlePackageAsync(package, _context, cancellationToken);
+
+        while (!cancellationToken.IsCancellationRequested)
         {
-            await PackageHelper.Handlers[orderedPackage.Header.Type].HandlePackageAsync(orderedPackage, _context, cancellationToken);
+            if (!_reorderingBuffer.TryGetOrderedPackage(_expectedSequence, out var orderedPackage))
+            {
+                return;
+            }
+            Interlocked.Increment(ref _expectedSequence);
+            await PackageHelper.Handlers[orderedPackage!.Header.Type].HandlePackageAsync(orderedPackage, _context, cancellationToken);
         }
 
         if (!_context.IsAborted) return;
@@ -85,6 +110,7 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
         package.Body.WriteData(span[package.Header.Length..]);
         Client.Send(span, _remoteEndPoint);
         ArrayPool<byte>.Shared.Return(buffer);
+        _context.LastSentPackage = package;
     }
 
     internal override async ValueTask SendAsync(ProtocolPackage package, CancellationToken cancellationToken)
@@ -95,6 +121,13 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
         package.Body.WriteData(span[package.Header.Length..]);
         await Client.SendAsync(buffer, _remoteEndPoint, cancellationToken);
         ArrayPool<byte>.Shared.Return(buffer);
+        _context.LastSentPackage = package;
+    }
+
+    public byte[] ReceiveAsync(CancellationToken cancellationToken)
+    {
+        //ToDo
+        return [];
     }
 
 

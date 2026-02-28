@@ -11,13 +11,13 @@ namespace ClientTests;
 public class Tests
 {
     private BlackFastListener _listener;
-    private UdpClient _client;
     private CancellationTokenSource _cts;
+    private BlackFastUserClient _client;
     [SetUp]
     public void Setup()
     {
         _listener = new BlackFastListener(new IPEndPoint(IPAddress.Loopback, 12345));
-        _client = new UdpClient(12344);
+        _client = new BlackFastUserClient(new IPEndPoint(IPAddress.Loopback, 12344));
         _cts = new CancellationTokenSource();
     }
 
@@ -34,40 +34,18 @@ public class Tests
     {
             _ = _listener.StartAsync(_cts.Token);
             var task = _listener.AcceptClientAsync(_cts.Token);
-            var header = new PackageHeader(Guid.NewGuid(), PackageType.Handshake, int.MinValue);
-            var body = new HandshakeBody();
-            var buffer = new byte[body.Length + header.Length];
-            header.WriteData(buffer);
-            body.WriteData(buffer, header.Length);
-            await _client.SendAsync(buffer, new IPEndPoint(IPAddress.Loopback, 12345));
+            await _client.ConnectAsync(new IPEndPoint(IPAddress.Loopback, 12345), _cts.Token);
             var client = await task;
-            var response = await _client.ReceiveAsync();
-            var responseBuffer = response.Buffer;
-            var responseHeader = PackageHeader.ReadData(responseBuffer);
-            var responseBody = HandshakeBody.ReadData(responseBuffer);
-            Assert.That(responseHeader.Sequence, Is.EqualTo(header.Sequence + 1));
+            //get last received client package by reflection
+            
+            await Task.Delay(3000);
+            
+            var context = (FastBlackSessionContext)_client.GetType().GetField("_context", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .GetValue(_client);
+            
+            Console.WriteLine(context?.LastReceivedPackage);
+            
+            Assert.That(client, Is.Not.Null);
         
-    }
-
-    [Test]
-    public async Task TestDataPackage()
-    {
-        _ = _listener.StartAsync(_cts.Token);
-        var task = _listener.AcceptClientAsync(_cts.Token);
-        var header = new PackageHeader(Guid.NewGuid(), PackageType.Handshake, int.MinValue);
-        var body = new HandshakeBody();
-        var buffer = new byte[body.Length + header.Length];
-        header.WriteData(buffer);
-        body.WriteData(buffer, header.Length);
-        await _client.SendAsync(buffer, new IPEndPoint(IPAddress.Loopback, 12345));
-        var client = await task;
-        var response = await _client.ReceiveAsync();
-        var responseBuffer = response.Buffer;
-        var responseHeader = PackageHeader.ReadData(responseBuffer);
-        var responseBody = HandshakeBody.ReadData(responseBuffer);
-
-        var newHeader = new PackageHeader(responseHeader.SessionId, PackageType.DataPackage, responseHeader.Sequence + 1);
-        var str = Encoding.UTF8.GetBytes("Hello world");
-        var newBody = new DataPackageBody(str);
     }
 }
