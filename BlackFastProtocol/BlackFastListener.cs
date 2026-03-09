@@ -44,7 +44,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
             
             if (_clients.TryGetValue(header.SessionId, out var client))
             {
-                await client.ReadPackageAsync(package, token);
+                _ = client.ReadPackageAsync(package, token);
                 client.UpdateEndpoint(remoteEndpoint);
                 continue;
             }
@@ -58,7 +58,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
             if (_clients.TryAdd(header.SessionId, client))
             {
                 await _uniqueClients.Writer.WriteAsync(client, token);
-                await client.ReadPackageAsync(package, token);
+                _ = client.ReadPackageAsync(package, token);
             }
             else
             {

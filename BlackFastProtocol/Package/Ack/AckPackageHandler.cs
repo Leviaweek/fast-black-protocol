@@ -2,7 +2,7 @@ namespace BlackFastProtocol.Package.Ack;
 
 public sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
 {
-    public async Task HandlePackageAsync(AckPackageBody package, FastBlackSessionContext context, CancellationToken cancellationToken)
+    public async Task HandlePackageAsync(PackageHeader header, AckPackageBody package, FastBlackSessionContext context, CancellationToken cancellationToken)
     {
         if (!context.IsHandshake)
         {
@@ -16,16 +16,14 @@ public sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
         
         context.LastReceivedPackage = package;
         
-        var nextSequence = context.GetNextSequence();
-        
-        var header = new PackageHeader(context.SessionId, PackageType.Ack, nextSequence);
+        var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Ack);
         var ack = new AckPackageBody();
-        var responsePackage = new ProtocolPackage(header, ack);
+        var responsePackage = new ProtocolPackage(responseHeader, ack);
 
         await context.Session.SendAsync(responsePackage, cancellationToken);
     }
 
-    public void HandlePackage(AckPackageBody package, FastBlackSessionContext context)
+    public void HandlePackage(PackageHeader header, AckPackageBody package, FastBlackSessionContext context)
     {
         if (context.LastSentPackage is { Header.Type: PackageType.Ack })
         {
@@ -34,11 +32,9 @@ public sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
         
         context.LastReceivedPackage = package;
         
-        var nextSequence = context.GetNextSequence();
-        
-        var header = new PackageHeader(context.SessionId, PackageType.Ack, nextSequence);
+        var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Ack);
         var ack = new AckPackageBody();
-        var responsePackage = new ProtocolPackage(header, ack);
+        var responsePackage = new ProtocolPackage(responseHeader, ack);
 
         context.Session.Send(responsePackage);
     }

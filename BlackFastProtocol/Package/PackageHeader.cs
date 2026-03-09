@@ -45,4 +45,11 @@ public sealed unsafe record PackageHeader : ITypedPackage, IWriteableData, IRead
         
     return new PackageHeader(sessionId, type, id);
   }
+  
+  public static PackageHeader CreateFromContext(FastBlackSessionContext context, PackageType type)
+  {
+    var sessionId = context.SessionId;
+    var sequence = context.GetNextSequence();
+    return new PackageHeader(sessionId, type, sequence);
+  }
 }

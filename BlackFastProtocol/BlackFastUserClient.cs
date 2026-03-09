@@ -11,17 +11,12 @@ namespace BlackFastProtocol;
 public sealed class BlackFastUserClient : BlackFastClient, IDisposable
 {
     private readonly FastBlackSessionContext _context;
-    private readonly ChannelReader<byte[]> _reader;
-    private readonly ReorderingBuffer _reorderingBuffer;
     private volatile uint _expectedSequence = uint.MinValue;
 
     public BlackFastUserClient(IPEndPoint endPoint) : base(new UdpClient(endPoint))
     {
         EndPoint = endPoint;
-        var channel = Channel.CreateUnbounded<byte[]>();
-        _reader = channel.Reader;
-        _context = new FastBlackSessionContext(this, Guid.NewGuid(), channel.Writer);
-        _reorderingBuffer = new ReorderingBuffer();
+        _context = new FastBlackSessionContext(this, Guid.NewGuid());
     }
 
     public async Task ConnectAsync(IPEndPoint endPoint, CancellationToken cancellationToken)
@@ -61,40 +56,7 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
 
     private async Task ReadPackageAsync(ProtocolPackage package, CancellationToken cancellationToken)
     {
-        if (package.Header.SessionId != _context.SessionId)
-        {
-            return;
-        }
-        
-        var diff = (int)package.Header.Sequence - _expectedSequence;
-        
-        if (diff < 0 || diff >= _reorderingBuffer.Length)
-        {
-            return;
-        }
-        
-        if (package.Header.Sequence != _expectedSequence)
-        {
-            if (!_reorderingBuffer.TryAdd(package))
-            {
-                throw new ArgumentException("Incorrect argument", nameof(package));
-            }
-
-            return;
-        }
-        
-        Interlocked.Increment(ref _expectedSequence);
-        await PackageHelper.Handlers[package.Header.Type].HandlePackageAsync(package, _context, cancellationToken);
-        
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            if (!_reorderingBuffer.TryGetOrderedPackage(_expectedSequence, out var orderedPackage))
-            {
-                return;
-            }
-            Interlocked.Increment(ref _expectedSequence);
-            await PackageHelper.Handlers[orderedPackage!.Header.Type].HandlePackageAsync(orderedPackage, _context, cancellationToken);
-        }
+        await _context.HandlePackageAsync(package, cancellationToken);
     }
 
     public override async ValueTask SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)

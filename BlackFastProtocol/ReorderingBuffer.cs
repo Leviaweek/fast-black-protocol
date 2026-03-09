@@ -35,4 +35,30 @@ public sealed class ReorderingBuffer(int length = 1024)
         _buffer[index] = null;
         return true;
     }
+    public uint GetPackagesMask(uint startSequence, uint endSequence)
+    {
+        var mask = 0u;
+        
+        if (startSequence >= endSequence)
+        {
+            throw new ArgumentException("Start sequence must be less than end sequence");
+        }
+        
+        var diff = (int)(endSequence - startSequence);
+        if (diff > 32)
+        {
+            throw new ArgumentException("End sequence must be less than start sequence + 32");
+        }
+        
+        for (var sequence = startSequence; sequence < endSequence; sequence++)
+        {
+            var index = sequence & _mask;
+            if (_buffer[index] is not null)
+            {
+                mask |= 1u << (int)(sequence - startSequence);
+            }
+        }
+
+        return mask;
+    }
 }

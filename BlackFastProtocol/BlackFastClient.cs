@@ -12,4 +12,5 @@ public abstract class BlackFastClient(UdpClient client)
     internal abstract ValueTask SendAsync(ProtocolPackage package, CancellationToken cancellationToken);
     public abstract IPEndPoint EndPoint { get; }
     private protected readonly UdpClient Client = client;
+    public const int MaxPackageSize = 1000;
 }

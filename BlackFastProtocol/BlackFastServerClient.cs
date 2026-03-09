@@ -12,10 +12,7 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
     private volatile IPEndPoint _remoteEndPoint;
     private readonly Action _dispose;
     private readonly FastBlackSessionContext _context;
-    private readonly ReorderingBuffer _reorderingBuffer;
     private bool _isStarted;
-    private volatile uint _expectedSequence = uint.MinValue;
-    private readonly ChannelReader<byte[]> _reader;
 
     public BlackFastServerClient(UdpClient client,
         IPEndPoint remoteEndPoint,
@@ -25,10 +22,7 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
         _dispose = dispose;
         _remoteEndPoint = remoteEndPoint;
         EndPoint = client.Client.LocalEndPoint as IPEndPoint ?? throw new InvalidOperationException("LocalEndPoint is not an IPEndPoint");
-        var channel = Channel.CreateUnbounded<byte[]>();
-        _context = new FastBlackSessionContext(this, sessionId, channel.Writer);
-        _reader = channel.Reader;
-        _reorderingBuffer = new ReorderingBuffer();
+        _context = new FastBlackSessionContext(this, sessionId);
     }
 
     internal void Start() => _isStarted = true;
@@ -41,44 +35,14 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
         Interlocked.Exchange(ref _remoteEndPoint, remoteEndPoint);
     }
 
-    internal async Task ReadPackageAsync(ProtocolPackage package, CancellationToken cancellationToken)
+    internal Task ReadPackageAsync(ProtocolPackage package, CancellationToken cancellationToken)
     {
-        var diff = (int)package.Header.Sequence - _expectedSequence;
-        if (diff < 0 || diff >= _reorderingBuffer.Length)
-        {
-            return;
-        }
-
-        if (package.Header.Sequence != _expectedSequence)
-        {
-            if (!_reorderingBuffer.TryAdd(package))
-            {
-                throw new ArgumentException("Incorrect argument", nameof(package));
-            }
-
-            return;
-        }
-        
         if (!_isStarted)
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        Interlocked.Increment(ref _expectedSequence);
-        await PackageHelper.Handlers[package.Header.Type].HandlePackageAsync(package, _context, cancellationToken);
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            if (!_reorderingBuffer.TryGetOrderedPackage(_expectedSequence, out var orderedPackage))
-            {
-                return;
-            }
-            Interlocked.Increment(ref _expectedSequence);
-            await PackageHelper.Handlers[orderedPackage!.Header.Type].HandlePackageAsync(orderedPackage, _context, cancellationToken);
-        }
-
-        if (!_context.IsAborted) return;
-        Dispose();
+        return _context.HandlePackageAsync(package, cancellationToken);
     }
 
     public override async ValueTask SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
@@ -134,5 +98,6 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
     public void Dispose()
     {
         _dispose();
+        _context.Dispose();
     }
 }
