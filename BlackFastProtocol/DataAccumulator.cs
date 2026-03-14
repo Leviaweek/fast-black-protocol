@@ -17,6 +17,9 @@ public sealed record DataAccumulator: IDisposable
     public int Length { get; init; }
 
     public void UpdateWindow() => UpdateWindow(Window.EndSequence);
+    
+    public bool IsComplete() => _totalReceivedBytes >= Length;
+    
 
     public void UpdateWindow(uint startSequence)
     {

@@ -17,7 +17,7 @@ public sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
         context.LastReceivedPackage = package;
         
         var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Ack);
-        var ack = new AckPackageBody();
+        var ack = new AckPackageBody(header.Sequence);
         var responsePackage = new ProtocolPackage(responseHeader, ack);
 
         await context.Session.SendAsync(responsePackage, cancellationToken);
@@ -33,7 +33,7 @@ public sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
         context.LastReceivedPackage = package;
         
         var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Ack);
-        var ack = new AckPackageBody();
+        var ack = new AckPackageBody(header.Sequence);
         var responsePackage = new ProtocolPackage(responseHeader, ack);
 
         context.Session.Send(responsePackage);

@@ -3,15 +3,14 @@ namespace BlackFastProtocol;
 public sealed record DataWindow
 {
     private readonly byte[] _buffer = new byte[999 * 32];
-    private uint _currentSequence;
-    private int _readOffset;
-    private uint _expectedBytes = 999 * 32;
+    private uint _expectedBytes;
+    private int _bytesRead;
 
-    public DataWindow(uint startSequence, uint endSequence)
+    public DataWindow(uint startSequence, uint endSequence, uint expectedBytes = 999 * 32)
     {
         StartSequence = startSequence;
         EndSequence = endSequence;
-        _currentSequence = StartSequence;
+        _expectedBytes = expectedBytes;
     }
 
     public uint StartSequence { get; private set; }
@@ -23,8 +22,6 @@ public sealed record DataWindow
     {
         StartSequence = startSequence;
         EndSequence = endSequence;
-        _currentSequence = startSequence;
-        _readOffset = 0;
         _expectedBytes = expectedBytes;
     }
 
@@ -35,21 +32,24 @@ public sealed record DataWindow
             return false;
         }
 
-        data.CopyTo(_buffer.AsSpan(_readOffset, data.Length));
-        _readOffset += data.Length;
-        _currentSequence = sequence;
+        var diff = (int)(sequence - StartSequence);
+        
+        if (diff < 0 || diff >= 32 || data.Length > 999)
+        {
+            return false;
+        }
+        
+        data.CopyTo(_buffer.AsSpan(diff * 999, data.Length));
+        _bytesRead += data.Length;
         return true;
     }
 
     public byte[] Flush()
     {
-        var result = new byte[_readOffset];
-        Array.Copy(_buffer, result, _readOffset);
+        var result = new byte[_bytesRead];
+        Array.Copy(_buffer, result, _bytesRead);
         return result;
     }
 
-    public bool IsReady()
-    {
-        return _readOffset >= _expectedBytes || (_readOffset > 0 && _currentSequence == EndSequence - 1);
-    }
+    public bool IsReady() => _bytesRead == _expectedBytes;
 }

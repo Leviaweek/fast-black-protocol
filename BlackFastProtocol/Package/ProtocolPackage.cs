@@ -1,5 +1,3 @@
-using System.Buffers;
-
 namespace BlackFastProtocol.Package;
 
 public sealed class ProtocolPackage: ILengthPackage
@@ -9,9 +7,6 @@ public sealed class ProtocolPackage: ILengthPackage
         Header = header;
         Body = body;
     }
-
-    public ProtocolPackage(Guid sessionId, PackageType type, uint id, IPackageBody body) : this(
-        new PackageHeader(sessionId, type, id), body) { }
 
     public PackageHeader Header { get; }
     public IPackageBody Body { get; }

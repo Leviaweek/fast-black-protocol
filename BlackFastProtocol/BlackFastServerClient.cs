@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading.Channels;
 using BlackFastProtocol.Package;
 using BlackFastProtocol.Package.DataPackage;
 
@@ -59,8 +58,7 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
 
     private ProtocolPackage GetProtocolPackage(ReadOnlyMemory<byte> buffer)
     {
-        var nextSequence = _context.GetNextSequence();
-        var header = new PackageHeader(_context.SessionId, PackageType.DataPackage, nextSequence);
+        var header = PackageHeader.CreateFromContext(_context, PackageType.DataPackage);
         var dataPackage = new DataPackageBody(buffer);
         var protocolPackage = new ProtocolPackage(header, dataPackage);
         return protocolPackage;

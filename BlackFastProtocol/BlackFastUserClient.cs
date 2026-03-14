@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading.Channels;
 using BlackFastProtocol.Package;
 using BlackFastProtocol.Package.DataPackage;
 using BlackFastProtocol.Package.Handshake;
@@ -22,7 +21,7 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
     public async Task ConnectAsync(IPEndPoint endPoint, CancellationToken cancellationToken)
     {
         Client.Connect(endPoint);
-        var handshakeHeader = new PackageHeader(_context.SessionId, PackageType.Handshake, _context.GetNextSequence());
+        var handshakeHeader = PackageHeader.CreateFromContext(_context, PackageType.Handshake);
         var handshakeBody = new HandshakeBody();
         var handshakePackage = new ProtocolPackage(handshakeHeader, handshakeBody);
         await SendAsync(handshakePackage, cancellationToken);
@@ -41,7 +40,7 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
 
             var length = result.ReceivedBytes;
 
-            if (length < 21)
+            if (length < 31)
             {
                 continue;
             }
@@ -61,8 +60,7 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
 
     public override async ValueTask SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
     {
-        var nextSequence = _context.GetNextSequence();
-        var header = new PackageHeader(_context.SessionId, PackageType.DataPackage, nextSequence);
+        var header = PackageHeader.CreateFromContext(_context, PackageType.DataPackage);
         var dataPackage = new DataPackageBody(buffer);
         var protocolPackage = new ProtocolPackage(header, dataPackage);
         await SendAsync(protocolPackage, cancellationToken);
@@ -70,8 +68,7 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
 
     public override void Send(ReadOnlyMemory<byte> buffer)
     {
-        var nextSequence = _context.GetNextSequence();
-        var header = new PackageHeader(_context.SessionId, PackageType.DataPackage, nextSequence);
+        var header = PackageHeader.CreateFromContext(_context, PackageType.DataPackage);
         var dataPackage = new DataPackageBody(buffer);
         var protocolPackage = new ProtocolPackage(header, dataPackage);
         Send(protocolPackage);
