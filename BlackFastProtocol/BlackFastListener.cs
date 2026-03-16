@@ -17,7 +17,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
     public async Task<BlackFastClient> AcceptClientAsync(CancellationToken token)
     {
         var client = await _uniqueClients.Reader.ReadAsync(token);
-        client.Start();
+        await client.StartAsync(token);
         return client;
     }
 

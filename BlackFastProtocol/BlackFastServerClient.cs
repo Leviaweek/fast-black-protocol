@@ -23,7 +23,7 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
         _context = new FastBlackSessionContext(this, sessionId);
     }
 
-    internal void Start() => _context.Start();
+    internal Task StartAsync(CancellationToken cancellationToken) => _context.StartAsync(cancellationToken);
 
 
     public override IPEndPoint EndPoint { get; }

@@ -29,8 +29,15 @@ public sealed class FastBlackSessionContext(
         set => Interlocked.Exchange(ref _clientState, value);
     }
     
-    internal void Start() => IsStarted = true;
-    
+    internal async Task StartAsync(CancellationToken cancellationToken)
+    {
+        IsStarted = true;
+        while (ReorderingBuffer.TryGetOrderedPackage(_expectedSequence, out var package))
+        {
+            await HandleAllPackageAsync(package!, cancellationToken);
+        }
+    }
+
     internal void AdvanceExpectedSequence() => Interlocked.Increment(ref _expectedSequence);
 
     public uint GetNextSequence() => Interlocked.Increment(ref _currentSequence);
@@ -50,29 +57,19 @@ public sealed class FastBlackSessionContext(
         {
             return;
         }
-        
-        if (package.Header.Sequence != _expectedSequence)
-        {
-            if (!ReorderingBuffer.TryAdd(package))
-            {
-                throw new ArgumentException("Incorrect argument", nameof(package));
-            }
-            if (!ReorderingBuffer.TryGetOrderedPackage(package.Header.Sequence, out var orderedPackage))
-            {
-                return;
-            }
 
-            if (!IsStarted)
-            {
-                return;
-            }
-            
-            await HandleAllPackageAsync(orderedPackage!, cancellationToken);
+        if (!IsStarted)
+        {
+            ReorderingBuffer.TryAdd(package);
             return;
         }
         
-        if (!IsStarted)
+        if (package.Header.Sequence != _expectedSequence)
+        {
+            ReorderingBuffer.TryAdd(package);
+            
             return;
+        }
         
         await HandleAllPackageAsync(package, cancellationToken);
     }
