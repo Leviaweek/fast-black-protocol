@@ -11,7 +11,7 @@ public class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
         }
 
         if (streamClientState.DataAccumulator is null)
-            await context.DataChannel.Writer.WriteAsync(package.Data, cancellationToken);
+            await context.DataChannel.Writer.WriteAsync(package.Data.ToArray(), cancellationToken);
         else
             streamClientState.DataAccumulator.TryAdd(header.Sequence, package.Data.Span);
     }
@@ -24,7 +24,9 @@ public class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
         }
 
         if (streamClientState.DataAccumulator is null)
-            context.DataChannel.Writer.TryWrite(package.Data);
+        {
+            context.DataChannel.Writer.TryWrite(package.Data.ToArray());
+        }
         else
             streamClientState.DataAccumulator.TryAdd(header.Sequence, package.Data.Span);
     }

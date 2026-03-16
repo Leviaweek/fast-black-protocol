@@ -18,6 +18,7 @@ public sealed class HandshakeBodyHandler: IBodyHandler<HandshakeBody>
         var handshakeResponse = new HandshakeBody();
         var responsePackage = new ProtocolPackage(responseHeader, handshakeResponse);
         await context.Session.SendAsync(responsePackage, cancellationToken);
+        context.ClientState = new StreamClientState();
     }
 
     public void HandlePackage(PackageHeader header, HandshakeBody package, FastBlackSessionContext context)
@@ -30,5 +31,6 @@ public sealed class HandshakeBodyHandler: IBodyHandler<HandshakeBody>
         var handshakeResponse = new HandshakeBody();
         var responsePackage = new ProtocolPackage(responseHeader, handshakeResponse);
         context.Session.Send(responsePackage);
+        context.ClientState = new StreamClientState();
     }
 }

@@ -11,7 +11,6 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
     private volatile IPEndPoint _remoteEndPoint;
     private readonly Action _dispose;
     private readonly FastBlackSessionContext _context;
-    private bool _isStarted;
 
     public BlackFastServerClient(UdpClient client,
         IPEndPoint remoteEndPoint,
@@ -24,7 +23,7 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
         _context = new FastBlackSessionContext(this, sessionId);
     }
 
-    internal void Start() => _isStarted = true;
+    internal void Start() => _context.Start();
 
 
     public override IPEndPoint EndPoint { get; }
@@ -36,11 +35,6 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
 
     internal Task ReadPackageAsync(ProtocolPackage package, CancellationToken cancellationToken)
     {
-        if (!_isStarted)
-        {
-            return Task.CompletedTask;
-        }
-
         return _context.HandlePackageAsync(package, cancellationToken);
     }
 
@@ -67,7 +61,7 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
     internal override void Send(ProtocolPackage package)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(package.Length);
-        var span = buffer.AsSpan();
+        var span = buffer.AsSpan()[..package.Length];
         package.Header.WriteData(span);
         package.Body.WriteData(span[package.Header.Length..]);
         Client.Send(span, _remoteEndPoint);
@@ -78,18 +72,32 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
     internal override async ValueTask SendAsync(ProtocolPackage package, CancellationToken cancellationToken)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(package.Length);
-        var span = buffer.AsSpan();
+        var memory = buffer.AsMemory()[..package.Length];
+        var span = memory.Span;
         package.Header.WriteData(span);
         package.Body.WriteData(span[package.Header.Length..]);
-        await Client.SendAsync(buffer, _remoteEndPoint, cancellationToken);
+        await Client.SendAsync(memory, _remoteEndPoint, cancellationToken);
         ArrayPool<byte>.Shared.Return(buffer);
         _context.LastSentPackage = package;
     }
 
-    public byte[] ReceiveAsync(CancellationToken cancellationToken)
+    public override async Task<byte[]> ReceiveAsync(CancellationToken cancellationToken)
     {
-        //ToDo
-        return [];
+        var result = await _context.DataChannel.Reader.ReadAsync(cancellationToken);
+        return result;
+    }
+
+    public override byte[] Receive()
+    {
+        while (true)
+        {
+            if (_context.DataChannel.Reader.TryRead(out var result))
+            {
+                return result;
+            }
+
+            Task.Delay(30).GetAwaiter().GetResult();
+        }
     }
 
 

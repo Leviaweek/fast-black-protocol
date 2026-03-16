@@ -77,7 +77,7 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
     internal override void Send(ProtocolPackage package)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(package.Length);
-        var span = buffer.AsSpan();
+        var span = buffer.AsSpan()[..package.Length];
         package.Header.WriteData(span);
         package.Body.WriteData(span[package.Header.Length..]);
         Client.Send(span);
@@ -88,12 +88,23 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
     internal override async ValueTask SendAsync(ProtocolPackage package, CancellationToken cancellationToken)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(package.Length);
-        var span = buffer.AsSpan();
+        var memory = buffer.AsMemory()[..package.Length];
+        var span = memory.Span;
         package.Header.WriteData(span);
         package.Body.WriteData(span[package.Header.Length..]);
-        await Client.SendAsync(buffer, cancellationToken);
+        await Client.SendAsync(memory, cancellationToken);
         ArrayPool<byte>.Shared.Return(buffer);
         _context.LastSentPackage = package;
+    }
+
+    public override Task<byte[]> ReceiveAsync(CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public override byte[] Receive()
+    {
+        throw new NotImplementedException();
     }
 
     public override IPEndPoint EndPoint { get; }

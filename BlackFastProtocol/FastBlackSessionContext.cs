@@ -13,6 +13,7 @@ public sealed class FastBlackSessionContext(
     public bool IsHandshake { get; set; }
     public IPackageBody? LastReceivedPackage { get; set; }
     public ProtocolPackage? LastSentPackage { get; set; }
+    internal bool IsStarted { get; private set; }
     private volatile uint _expectedSequence = uint.MinValue;
 
     private uint _currentSequence = uint.MaxValue;
@@ -28,12 +29,14 @@ public sealed class FastBlackSessionContext(
         set => Interlocked.Exchange(ref _clientState, value);
     }
     
+    internal void Start() => IsStarted = true;
+    
     internal void AdvanceExpectedSequence() => Interlocked.Increment(ref _expectedSequence);
 
     public uint GetNextSequence() => Interlocked.Increment(ref _currentSequence);
     public Guid SessionId { get; } = sessionId;
 
-    public Channel<ReadOnlyMemory<byte>> DataChannel { get; } = Channel.CreateUnbounded<ReadOnlyMemory<byte>>(
+    public Channel<byte[]> DataChannel { get; } = Channel.CreateUnbounded<byte[]>(
         new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -54,14 +57,46 @@ public sealed class FastBlackSessionContext(
             {
                 throw new ArgumentException("Incorrect argument", nameof(package));
             }
+            if (!ReorderingBuffer.TryGetOrderedPackage(package.Header.Sequence, out var orderedPackage))
+            {
+                return;
+            }
 
+            if (!IsStarted)
+            {
+                return;
+            }
+            
+            await HandleAllPackageAsync(orderedPackage!, cancellationToken);
             return;
         }
         
+        if (!IsStarted)
+            return;
+        
+        await HandleAllPackageAsync(package, cancellationToken);
+    }
+
+    private async Task HandleAllPackageAsync(ProtocolPackage package, CancellationToken cancellationToken)
+    {
         await _clientState.HandleAsync(package, this, cancellationToken);
 
-        if (!IsAborted) return;
-        Dispose();
+        if (IsAborted)
+        {
+            Dispose();
+            return;
+        }
+        
+        while (ReorderingBuffer.TryGetOrderedPackage(_expectedSequence, out var orderedPackage))
+        {
+            await _clientState.HandleAsync(orderedPackage!, this, cancellationToken);
+            
+            if (IsAborted)
+            {
+                Dispose();
+                return;
+            }
+        }
     }
 
     public void Dispose()
@@ -83,22 +118,12 @@ internal sealed class DefaultClientState : ClientState
     {
         context.AdvanceExpectedSequence();
         await PackageHelper.Handlers[package.Header.Type].HandlePackageAsync(package, context, cancellationToken);
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            if (!context.ReorderingBuffer.TryGetOrderedPackage(context.ExpectedSequence, out var orderedPackage))
-            {
-                return;
-            }
-            context.AdvanceExpectedSequence();
-            await PackageHelper.Handlers[orderedPackage!.Header.Type].HandlePackageAsync(orderedPackage, context, cancellationToken);
-        }
     }
 }
 
-internal sealed class StreamClientState(int dataLength) : ClientState, IDisposable
+internal sealed class StreamClientState(int dataLength = 0) : ClientState, IDisposable
 {
-    internal DataAccumulator? DataAccumulator { get; private set; } = new(dataLength);
+    internal DataAccumulator? DataAccumulator { get; private set; } = dataLength > 0 ? new DataAccumulator(dataLength) : null;
 
     public override async Task HandleAsync(ProtocolPackage package, FastBlackSessionContext context,
         CancellationToken cancellationToken)
@@ -107,17 +132,6 @@ internal sealed class StreamClientState(int dataLength) : ClientState, IDisposab
         await PackageHelper.Handlers[package.Header.Type].HandlePackageAsync(package, context, cancellationToken);
 
         await PostProcessDataAsync(package, context, cancellationToken);
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            if (!context.ReorderingBuffer.TryGetOrderedPackage(context.ExpectedSequence, out var orderedPackage))
-            {
-                return;
-            }
-            context.AdvanceExpectedSequence();
-            await PackageHelper.Handlers[orderedPackage!.Header.Type].HandlePackageAsync(orderedPackage, context, cancellationToken);
-            await PostProcessDataAsync(package, context, cancellationToken);
-        }
     }
     
     private async Task PostProcessDataAsync(ProtocolPackage package, FastBlackSessionContext context, CancellationToken cancellationToken)

@@ -16,7 +16,7 @@ public sealed unsafe record PackageHeader : ITypedPackage, IWriteableData, IRead
   private PackageType _type;
   public PackageType Type => _type;
 
-  public int Length => sizeof(Guid) + sizeof(PackageType) + sizeof(uint);
+  public int Length => sizeof(Guid) + sizeof(PackageType) + sizeof(uint) + sizeof(long) + sizeof(short);
   public Guid SessionId { get; }
   public uint Sequence { get; }
   public DateTimeOffset Timestamp { get; }
