@@ -9,7 +9,7 @@ internal sealed class StreamClientState(int dataLength = 0) : ClientState, IDisp
 {
     internal DataAccumulator? DataAccumulator { get; private set; } = dataLength > 0 ? new DataAccumulator(dataLength) : null;
 
-    public override async Task HandleAsync(ProtocolPackage package, FastBlackSessionContext context,
+    public override async ValueTask HandleAsync(ProtocolPackage package, FastBlackSessionContext context,
         CancellationToken cancellationToken)
     {
         context.SequenceManager.AdvanceExpected();

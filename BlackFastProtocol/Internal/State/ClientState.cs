@@ -5,6 +5,6 @@ namespace BlackFastProtocol.Internal.State;
 
 internal abstract class ClientState
 {
-    public abstract Task HandleAsync(ProtocolPackage package, FastBlackSessionContext context,
+    public abstract ValueTask HandleAsync(ProtocolPackage package, FastBlackSessionContext context,
         CancellationToken cancellationToken);
 }

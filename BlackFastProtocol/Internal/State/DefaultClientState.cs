@@ -5,7 +5,7 @@ namespace BlackFastProtocol.Internal.State;
 
 internal sealed class DefaultClientState : ClientState
 {
-    public override async Task HandleAsync(ProtocolPackage package, FastBlackSessionContext context,
+    public override async ValueTask HandleAsync(ProtocolPackage package, FastBlackSessionContext context,
         CancellationToken cancellationToken)
     {
         context.SequenceManager.AdvanceExpected();

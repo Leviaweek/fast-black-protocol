@@ -5,7 +5,7 @@ namespace BlackFastProtocol.Internal.Package.Ack;
 
 internal sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
 {
-    public async Task<bool> TryHandlePackageAsync(PackageHeader header, AckPackageBody package, FastBlackSessionContext context, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryHandlePackageAsync(PackageHeader header, AckPackageBody package, FastBlackSessionContext context, CancellationToken cancellationToken)
     {
         if (!context.Info.IsHandshake)
         {
@@ -16,8 +16,6 @@ internal sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
         {
             return false;
         }
-        
-        context.Tracker.LastReceivedPackage = package;
         
         var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Ack);
         var ack = new AckPackageBody(header.Sequence);
@@ -33,8 +31,6 @@ internal sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
         {
             return false;
         }
-        
-        context.Tracker.LastReceivedPackage = package;
         
         var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Ack);
         var ack = new AckPackageBody(header.Sequence);

@@ -6,7 +6,7 @@ namespace BlackFastProtocol.Internal.Package.Handshake;
 
 internal sealed class HandshakeBodyHandler: IBodyHandler<HandshakeBody>
 {
-    public async Task<bool> TryHandlePackageAsync(PackageHeader header, HandshakeBody package, FastBlackSessionContext context,
+    public async ValueTask<bool> TryHandlePackageAsync(PackageHeader header, HandshakeBody package, FastBlackSessionContext context,
         CancellationToken cancellationToken)
     {
         context.Info.IsHandshake = true;

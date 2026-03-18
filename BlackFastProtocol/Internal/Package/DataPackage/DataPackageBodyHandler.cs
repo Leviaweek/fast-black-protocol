@@ -5,9 +5,9 @@ using BlackFastProtocol.Internal.State;
 
 namespace BlackFastProtocol.Internal.Package.DataPackage;
 
-internal class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
+internal sealed class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
 {
-    public async Task<bool> TryHandlePackageAsync(PackageHeader header, DataPackageBody package, FastBlackSessionContext context,
+    public async ValueTask<bool> TryHandlePackageAsync(PackageHeader header, DataPackageBody package, FastBlackSessionContext context,
         CancellationToken cancellationToken)
     {
         if (context.ClientState is not StreamClientState streamClientState)
