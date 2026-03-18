@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using BlackFastProtocol;
+using BlackFastProtocol.Public;
 
 namespace ClientTests;
 
