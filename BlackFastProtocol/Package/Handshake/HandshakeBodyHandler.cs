@@ -2,17 +2,18 @@ namespace BlackFastProtocol.Package.Handshake;
 
 public sealed class HandshakeBodyHandler: IBodyHandler<HandshakeBody>
 {
-    public async Task HandlePackageAsync(PackageHeader header, HandshakeBody package, FastBlackSessionContext context, CancellationToken cancellationToken)
+    public async Task HandlePackageAsync(PackageHeader header, HandshakeBody package, FastBlackSessionContext context,
+        CancellationToken cancellationToken)
     {
         Console.WriteLine($"Received handshake from {context.Session.EndPoint}");
-        context.LastReceivedPackage = package;
+        context.Tracker.LastReceivedPackage = package;
 
-        if (context.LastSentPackage is { Header.Type: PackageType.Handshake })
+        if (context.Tracker.LastSentPackage is { Header.Type: PackageType.Handshake })
         {
             return;
         }
         
-        context.IsHandshake = true;
+        context.Info.IsHandshake = true;
         
         var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Handshake);
         var handshakeResponse = new HandshakeBody();
@@ -25,7 +26,7 @@ public sealed class HandshakeBodyHandler: IBodyHandler<HandshakeBody>
     {
         Console.WriteLine($"Received handshake from {context.Session.EndPoint}");
         
-        context.IsHandshake = true;
+        context.Info.IsHandshake = true;
         
         var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Handshake);
         var handshakeResponse = new HandshakeBody();

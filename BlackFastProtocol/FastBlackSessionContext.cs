@@ -9,19 +9,14 @@ public sealed class FastBlackSessionContext(
     Guid sessionId) : IDisposable
 {
     public BlackFastClient Session { get; } = client;
-    public bool IsAborted { get; set; }
-    public bool IsHandshake { get; set; }
-    public IPackageBody? LastReceivedPackage { get; set; }
-    public ProtocolPackage? LastSentPackage { get; set; }
-    internal bool IsStarted { get; private set; }
-    private volatile uint _expectedSequence = uint.MinValue;
 
-    private uint _currentSequence = uint.MaxValue;
+    internal PackageTracker Tracker { get; } = new();
+    internal SessionInfo Info { get; } = new(sessionId);
+    internal SessionDataPipeline DataChannel { get; } = new();
+    internal SequenceManager  SequenceManager { get; } = new();
     internal ReorderingBuffer ReorderingBuffer { get; } = new();
     
-    
     private volatile ClientState _clientState = new DefaultClientState();
-    internal uint ExpectedSequence => _expectedSequence;
     
     internal ClientState ClientState
     {
@@ -31,40 +26,29 @@ public sealed class FastBlackSessionContext(
     
     internal async Task StartAsync(CancellationToken cancellationToken)
     {
-        IsStarted = true;
-        while (ReorderingBuffer.TryGetOrderedPackage(_expectedSequence, out var package))
+        Info.IsStarted = true;
+        while (ReorderingBuffer.TryGetOrderedPackage(SequenceManager.Expected, out var package))
         {
             await HandleAllPackageAsync(package!, cancellationToken);
         }
     }
-
-    internal void AdvanceExpectedSequence() => Interlocked.Increment(ref _expectedSequence);
-
-    public uint GetNextSequence() => Interlocked.Increment(ref _currentSequence);
-    public Guid SessionId { get; } = sessionId;
-
-    public Channel<byte[]> DataChannel { get; } = Channel.CreateUnbounded<byte[]>(
-        new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = true
-        });
+    
 
     public async Task HandlePackageAsync(ProtocolPackage package, CancellationToken cancellationToken)
     {
-        var diff = (int)package.Header.Sequence - _expectedSequence;
+        var diff = (int)package.Header.Sequence - SequenceManager.Expected;
         if (diff < 0 || diff >= ReorderingBuffer.Length)
         {
             return;
         }
 
-        if (!IsStarted)
+        if (!Info.IsStarted)
         {
             ReorderingBuffer.TryAdd(package);
             return;
         }
         
-        if (package.Header.Sequence != _expectedSequence)
+        if (package.Header.Sequence != SequenceManager.Expected)
         {
             ReorderingBuffer.TryAdd(package);
             
@@ -78,17 +62,17 @@ public sealed class FastBlackSessionContext(
     {
         await _clientState.HandleAsync(package, this, cancellationToken);
 
-        if (IsAborted)
+        if (Info.IsAborted)
         {
             Dispose();
             return;
         }
         
-        while (ReorderingBuffer.TryGetOrderedPackage(_expectedSequence, out var orderedPackage))
+        while (ReorderingBuffer.TryGetOrderedPackage(SequenceManager.Expected, out var orderedPackage))
         {
             await _clientState.HandleAsync(orderedPackage!, this, cancellationToken);
             
-            if (IsAborted)
+            if (Info.IsAborted)
             {
                 Dispose();
                 return;
@@ -98,7 +82,7 @@ public sealed class FastBlackSessionContext(
 
     public void Dispose()
     {
-        DataChannel.Writer.TryComplete();
+        DataChannel.Dispose();
     }
 }
 
@@ -113,7 +97,7 @@ internal sealed class DefaultClientState : ClientState
     public override async Task HandleAsync(ProtocolPackage package, FastBlackSessionContext context,
         CancellationToken cancellationToken)
     {
-        context.AdvanceExpectedSequence();
+        context.SequenceManager.AdvanceExpected();
         await PackageHelper.Handlers[package.Header.Type].HandlePackageAsync(package, context, cancellationToken);
     }
 }
@@ -125,7 +109,7 @@ internal sealed class StreamClientState(int dataLength = 0) : ClientState, IDisp
     public override async Task HandleAsync(ProtocolPackage package, FastBlackSessionContext context,
         CancellationToken cancellationToken)
     {
-        context.AdvanceExpectedSequence();
+        context.SequenceManager.AdvanceExpected();
         await PackageHelper.Handlers[package.Header.Type].HandlePackageAsync(package, context, cancellationToken);
 
         await PostProcessDataAsync(package, context, cancellationToken);
@@ -161,4 +145,46 @@ internal sealed class StreamClientState(int dataLength = 0) : ClientState, IDisp
     {
         DataAccumulator?.Dispose();
     }
+}
+
+internal sealed class PackageTracker
+{
+    public IPackageBody? LastReceivedPackage { get; set; }
+    public ProtocolPackage? LastSentPackage { get; set; }
+}
+
+internal sealed record SessionInfo(Guid SessionId)
+{
+    public bool IsHandshake { get; set; }
+    public bool  IsAborted { get; set; }
+    public bool IsStarted { get; set; }
+}
+
+internal sealed class SessionDataPipeline : IDisposable
+{
+    private readonly Channel<byte[]> _channel =
+        Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = true
+        });
+
+    public ChannelReader<byte[]> Reader => _channel.Reader;
+    public ChannelWriter<byte[]> Writer => _channel.Writer;
+
+    public void Dispose() => _channel.Writer.TryComplete();
+}
+
+internal sealed class SequenceManager
+{
+    private volatile uint _expectedSequence = uint.MinValue;
+    private uint _currentSequence = uint.MaxValue;
+
+    public uint Expected => _expectedSequence;
+
+    public uint GetNextOutgoing() => 
+        Interlocked.Increment(ref _currentSequence);
+
+    public void AdvanceExpected() => 
+        Interlocked.Increment(ref _expectedSequence);
 }

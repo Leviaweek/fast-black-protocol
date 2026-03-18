@@ -31,14 +31,21 @@ public class Tests
             var task = _listener.AcceptClientAsync(_cts.Token);
             await _client.ConnectAsync(new IPEndPoint(IPAddress.Loopback, 12345), _cts.Token);
             var client = await task;
-            //get last received client package by reflection
             
             await Task.Delay(3000);
+
+            var context = _client.GetType().GetField("_context",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(_client)!;
             
-            var context = (FastBlackSessionContext)_client.GetType().GetField("_context", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                .GetValue(_client);
+            var tracker = context.GetType().GetField("Tracker",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic |
+                System.Reflection.BindingFlags.Instance)!.GetValue(context)!;
             
-            Console.WriteLine(context?.LastReceivedPackage);
+            var lastReceivedPackage = tracker.GetType().GetField("LastReceivedPackage",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic |
+                System.Reflection.BindingFlags.Instance)!.GetValue(tracker)!;
+            
+            Console.WriteLine(lastReceivedPackage);
             
             Assert.That(client, Is.Not.Null);
         

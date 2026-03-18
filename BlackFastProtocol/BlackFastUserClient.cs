@@ -82,7 +82,7 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
         package.Body.WriteData(span[package.Header.Length..]);
         Client.Send(span);
         ArrayPool<byte>.Shared.Return(buffer);
-        _context.LastSentPackage = package;
+        _context.Tracker.LastSentPackage = package;
     }
 
     internal override async ValueTask SendAsync(ProtocolPackage package, CancellationToken cancellationToken)
@@ -94,7 +94,7 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
         package.Body.WriteData(span[package.Header.Length..]);
         await Client.SendAsync(memory, cancellationToken);
         ArrayPool<byte>.Shared.Return(buffer);
-        _context.LastSentPackage = package;
+        _context.Tracker.LastSentPackage = package;
     }
 
     public override Task<byte[]> ReceiveAsync(CancellationToken cancellationToken)

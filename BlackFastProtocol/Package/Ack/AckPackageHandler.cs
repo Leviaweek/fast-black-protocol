@@ -4,17 +4,17 @@ public sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
 {
     public async Task HandlePackageAsync(PackageHeader header, AckPackageBody package, FastBlackSessionContext context, CancellationToken cancellationToken)
     {
-        if (!context.IsHandshake)
+        if (!context.Info.IsHandshake)
         {
             return;
         }
         
-        if (context.LastSentPackage is { Header.Type: PackageType.Ack })
+        if (context.Tracker.LastSentPackage is { Header.Type: PackageType.Ack })
         {
             return;
         }
         
-        context.LastReceivedPackage = package;
+        context.Tracker.LastReceivedPackage = package;
         
         var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Ack);
         var ack = new AckPackageBody(header.Sequence);
@@ -25,12 +25,12 @@ public sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
 
     public void HandlePackage(PackageHeader header, AckPackageBody package, FastBlackSessionContext context)
     {
-        if (context.LastSentPackage is { Header.Type: PackageType.Ack })
+        if (context.Tracker.LastSentPackage is { Header.Type: PackageType.Ack })
         {
             return;
         }
         
-        context.LastReceivedPackage = package;
+        context.Tracker.LastReceivedPackage = package;
         
         var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Ack);
         var ack = new AckPackageBody(header.Sequence);

@@ -1,3 +1,5 @@
+using BlackFastProtocol.Package.Ack;
+
 namespace BlackFastProtocol.Package.DataPackage;
 
 public class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
@@ -11,7 +13,13 @@ public class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
         }
 
         if (streamClientState.DataAccumulator is null)
+        {
             await context.DataChannel.Writer.WriteAsync(package.Data.ToArray(), cancellationToken);
+            var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Ack);
+            var ack = new AckPackageBody(header.Sequence);
+            var responsePackage = new ProtocolPackage(responseHeader, ack);
+            await context.Session.SendAsync(responsePackage, cancellationToken);
+        }
         else
             streamClientState.DataAccumulator.TryAdd(header.Sequence, package.Data.Span);
     }
