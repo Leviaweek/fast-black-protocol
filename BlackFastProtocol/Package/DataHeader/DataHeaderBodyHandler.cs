@@ -1,6 +1,6 @@
 namespace BlackFastProtocol.Package.DataHeader;
 
-public sealed class DataHeaderBodyHandler : IBodyHandler<DataHeaderBody>
+internal sealed class DataHeaderBodyHandler : IBodyHandler<DataHeaderBody>
 {
     public Task HandlePackageAsync(PackageHeader header, DataHeaderBody package, FastBlackSessionContext context,
         CancellationToken cancellationToken)

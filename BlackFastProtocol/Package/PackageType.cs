@@ -1,6 +1,6 @@
 namespace BlackFastProtocol.Package;
 
-public enum PackageType : byte
+internal enum PackageType : byte
 {
     Handshake = 0,
     Ack = 1,

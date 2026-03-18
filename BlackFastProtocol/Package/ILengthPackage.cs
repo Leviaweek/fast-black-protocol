@@ -1,6 +1,6 @@
 namespace BlackFastProtocol.Package;
 
-public interface ILengthPackage
+internal interface ILengthPackage
 {
   public int Length { get; }
 }

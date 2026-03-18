@@ -1,6 +1,6 @@
 namespace BlackFastProtocol;
 
-public sealed record DataAccumulator: IDisposable
+internal sealed record DataAccumulator: IDisposable
 {
     private int _totalReceivedBytes = 0;
     public readonly DataWindow Window = new(0, 32);

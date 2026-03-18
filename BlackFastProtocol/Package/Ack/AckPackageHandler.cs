@@ -1,6 +1,6 @@
 namespace BlackFastProtocol.Package.Ack;
 
-public sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
+internal sealed record AckPackageHandler : IBodyHandler<AckPackageBody>
 {
     public async Task HandlePackageAsync(PackageHeader header, AckPackageBody package, FastBlackSessionContext context, CancellationToken cancellationToken)
     {

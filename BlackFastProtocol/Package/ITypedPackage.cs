@@ -1,6 +1,6 @@
 namespace BlackFastProtocol.Package;
 
-public interface ITypedPackage
+internal interface ITypedPackage
 {
     public PackageType Type { get; }
 }

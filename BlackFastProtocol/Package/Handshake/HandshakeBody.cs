@@ -1,6 +1,6 @@
 namespace BlackFastProtocol.Package.Handshake;
 
-public sealed record HandshakeBody : IPackageBody,
+internal sealed record HandshakeBody : IPackageBody,
         IReadableData<HandshakeBody>
 {
     public int WriteData(Span<byte> buffer, int offset = 0)

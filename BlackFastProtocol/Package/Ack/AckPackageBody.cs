@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 
 namespace BlackFastProtocol.Package.Ack;
 
-public sealed record AckPackageBody(uint LastReadSequence) : IPackageBody, IReadableData<AckPackageBody>
+internal sealed record AckPackageBody(uint LastReadSequence) : IPackageBody, IReadableData<AckPackageBody>
 {
     public int WriteData(Span<byte> buffer, int offset = 0)
     {   

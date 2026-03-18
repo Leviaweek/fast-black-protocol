@@ -1,6 +1,6 @@
 namespace BlackFastProtocol.Package;
 
-public sealed class ProtocolPackage: ILengthPackage
+internal sealed class ProtocolPackage: ILengthPackage
 {
     public ProtocolPackage(PackageHeader header, IPackageBody body)
     {

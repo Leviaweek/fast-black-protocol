@@ -1,10 +1,8 @@
-using System.Threading.Channels;
 using BlackFastProtocol.Package;
-using BlackFastProtocol.Package.Ack;
 
 namespace BlackFastProtocol;
 
-public sealed class FastBlackSessionContext(
+internal sealed class FastBlackSessionContext(
     BlackFastClient client,
     Guid sessionId) : IDisposable
 {
@@ -84,107 +82,4 @@ public sealed class FastBlackSessionContext(
     {
         DataChannel.Dispose();
     }
-}
-
-internal abstract class ClientState
-{
-    public abstract Task HandleAsync(ProtocolPackage package, FastBlackSessionContext context,
-        CancellationToken cancellationToken);
-}
-
-internal sealed class DefaultClientState : ClientState
-{
-    public override async Task HandleAsync(ProtocolPackage package, FastBlackSessionContext context,
-        CancellationToken cancellationToken)
-    {
-        context.SequenceManager.AdvanceExpected();
-        await PackageHelper.Handlers[package.Header.Type].HandlePackageAsync(package, context, cancellationToken);
-    }
-}
-
-internal sealed class StreamClientState(int dataLength = 0) : ClientState, IDisposable
-{
-    internal DataAccumulator? DataAccumulator { get; private set; } = dataLength > 0 ? new DataAccumulator(dataLength) : null;
-
-    public override async Task HandleAsync(ProtocolPackage package, FastBlackSessionContext context,
-        CancellationToken cancellationToken)
-    {
-        context.SequenceManager.AdvanceExpected();
-        await PackageHelper.Handlers[package.Header.Type].HandlePackageAsync(package, context, cancellationToken);
-
-        await PostProcessDataAsync(package, context, cancellationToken);
-    }
-    
-    private async Task PostProcessDataAsync(ProtocolPackage package, FastBlackSessionContext context, CancellationToken cancellationToken)
-    {
-        if (DataAccumulator is null) return;
-
-        if (!DataAccumulator.Window.IsReady()) return;
-        
-        context.DataChannel.Writer.TryWrite(DataAccumulator.FlushWindow());
-
-        var header = PackageHeader.CreateFromContext(context, PackageType.Ack);
-        var ack = new AckPackageBody(package.Header.Sequence);
-        
-        var responsePackage = new ProtocolPackage(header, ack);
-
-        await context.Session.SendAsync(responsePackage, cancellationToken);
-
-        if (!DataAccumulator.IsComplete())
-        {
-            DataAccumulator.UpdateWindow();
-        }
-        else
-        {
-            DataAccumulator.Dispose();
-            DataAccumulator = null;
-        }
-    }
-
-    public void Dispose()
-    {
-        DataAccumulator?.Dispose();
-    }
-}
-
-internal sealed class PackageTracker
-{
-    public IPackageBody? LastReceivedPackage { get; set; }
-    public ProtocolPackage? LastSentPackage { get; set; }
-}
-
-internal sealed record SessionInfo(Guid SessionId)
-{
-    public bool IsHandshake { get; set; }
-    public bool  IsAborted { get; set; }
-    public bool IsStarted { get; set; }
-}
-
-internal sealed class SessionDataPipeline : IDisposable
-{
-    private readonly Channel<byte[]> _channel =
-        Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = true
-        });
-
-    public ChannelReader<byte[]> Reader => _channel.Reader;
-    public ChannelWriter<byte[]> Writer => _channel.Writer;
-
-    public void Dispose() => _channel.Writer.TryComplete();
-}
-
-internal sealed class SequenceManager
-{
-    private volatile uint _expectedSequence = uint.MinValue;
-    private uint _currentSequence = uint.MaxValue;
-
-    public uint Expected => _expectedSequence;
-
-    public uint GetNextOutgoing() => 
-        Interlocked.Increment(ref _currentSequence);
-
-    public void AdvanceExpected() => 
-        Interlocked.Increment(ref _expectedSequence);
 }

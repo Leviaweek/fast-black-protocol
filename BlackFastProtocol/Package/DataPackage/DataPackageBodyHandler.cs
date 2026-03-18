@@ -2,7 +2,7 @@ using BlackFastProtocol.Package.Ack;
 
 namespace BlackFastProtocol.Package.DataPackage;
 
-public class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
+internal class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
 {
     public async Task HandlePackageAsync(PackageHeader header, DataPackageBody package, FastBlackSessionContext context,
         CancellationToken cancellationToken)

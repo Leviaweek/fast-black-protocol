@@ -1,6 +1,6 @@
 namespace BlackFastProtocol;
 
-public sealed record DataWindow
+internal sealed record DataWindow
 {
     private readonly byte[] _buffer = new byte[999 * 32];
     private uint _expectedBytes;

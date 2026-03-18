@@ -1,6 +1,6 @@
 namespace BlackFastProtocol.Package.Handshake;
 
-public sealed class HandshakeBodyHandler: IBodyHandler<HandshakeBody>
+internal sealed class HandshakeBodyHandler: IBodyHandler<HandshakeBody>
 {
     public async Task HandlePackageAsync(PackageHeader header, HandshakeBody package, FastBlackSessionContext context,
         CancellationToken cancellationToken)

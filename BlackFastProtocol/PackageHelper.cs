@@ -5,7 +5,7 @@ using BlackFastProtocol.Package.Handshake;
 
 namespace BlackFastProtocol;
 
-public static class PackageHelper
+internal static class PackageHelper
 {
     public static FrozenDictionary<PackageType, Func<ReadOnlyMemory<byte>, IPackageBody>> BodyReaders { get; } =
         new Dictionary<PackageType, Func<ReadOnlyMemory<byte>, IPackageBody>>

@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 
 namespace BlackFastProtocol.Package.DataHeader;
 
-public sealed record DataHeaderBody(int DataLength) : IPackageBody, IReadableData<DataHeaderBody>
+internal sealed record DataHeaderBody(int DataLength) : IPackageBody, IReadableData<DataHeaderBody>
 {
     public int WriteData(Span<byte> buffer, int offset = 0)
     {

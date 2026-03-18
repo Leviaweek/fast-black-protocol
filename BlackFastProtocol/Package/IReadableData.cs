@@ -1,6 +1,6 @@
 namespace BlackFastProtocol.Package;
 
-public interface IReadableData<out T>
+internal interface IReadableData<out T>
 {
-    public static abstract T ReadData(ReadOnlyMemory<byte> buffer, int offset = 0);
+    internal static abstract T ReadData(ReadOnlyMemory<byte> buffer, int offset = 0);
 }

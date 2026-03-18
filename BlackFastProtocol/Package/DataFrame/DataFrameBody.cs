@@ -1,6 +1,6 @@
 namespace BlackFastProtocol.Package.DataFrame;
 
-public sealed record DataFrameBody(ReadOnlyMemory<byte> Data) : IPackageBody,
+internal sealed record DataFrameBody(ReadOnlyMemory<byte> Data) : IPackageBody,
     IReadableData<DataFrameBody>
 {
     public int WriteData(Span<byte> buffer, int offset = 0)

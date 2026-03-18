@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 
 namespace BlackFastProtocol.Package;
 
-public sealed unsafe record PackageHeader : ITypedPackage, IWriteableData, IReadableData<PackageHeader>, ILengthPackage
+internal sealed unsafe record PackageHeader : ITypedPackage, IWriteableData, IReadableData<PackageHeader>, ILengthPackage
 {
     public PackageHeader(Guid sessionId, PackageType type, uint id, DateTimeOffset timestamp)
     {

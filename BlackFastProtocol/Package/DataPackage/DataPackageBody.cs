@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace BlackFastProtocol.Package.DataPackage;
 
-public sealed record DataPackageBody([MaxLength(1024)] ReadOnlyMemory<byte> Data) : IPackageBody, IReadableData<DataPackageBody>
+internal sealed record DataPackageBody([MaxLength(1024)] ReadOnlyMemory<byte> Data) : IPackageBody, IReadableData<DataPackageBody>
 {
     public int WriteData(Span<byte> buffer, int offset = 0)
     {

@@ -2,7 +2,7 @@
 
 namespace BlackFastProtocol;
 
-public sealed class ReorderingBuffer(int length = 1024)
+internal sealed class ReorderingBuffer(int length = 1024)
 {
     private readonly ProtocolPackage?[] _buffer = new ProtocolPackage?[length];
     private readonly uint _mask = (uint)(length - 1);
