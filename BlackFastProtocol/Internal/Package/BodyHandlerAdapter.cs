@@ -12,6 +12,9 @@ internal sealed class BodyHandlerAdapter<T>(IBodyHandler<T> innerHandler) : IBod
     {
         var packageBody = Unsafe.As<T>(package.Body);
 
-        await innerHandler.HandlePackageAsync(package.Header, packageBody, context, cancellationToken);
+        var result = await innerHandler.TryHandlePackageAsync(package.Header, packageBody, context, cancellationToken);
+        
+        if (result)
+            context.Tracker.LastReceivedPackage = package.Body;
     }
 }

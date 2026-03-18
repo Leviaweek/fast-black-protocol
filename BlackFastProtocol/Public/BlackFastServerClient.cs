@@ -11,7 +11,7 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
 {
     private volatile IPEndPoint _remoteEndPoint;
     private readonly Action _dispose;
-    private readonly FastBlackSessionContext _context;
+    private protected override FastBlackSessionContext Context { get; }
 
     public BlackFastServerClient(UdpClient client,
         IPEndPoint remoteEndPoint,
@@ -21,13 +21,17 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
         _dispose = dispose;
         _remoteEndPoint = remoteEndPoint;
         EndPoint = client.Client.LocalEndPoint as IPEndPoint ?? throw new InvalidOperationException("LocalEndPoint is not an IPEndPoint");
-        _context = new FastBlackSessionContext(this, sessionId);
+        Context = new FastBlackSessionContext(this, sessionId);
     }
 
-    internal Task StartAsync(CancellationToken cancellationToken) => _context.StartAsync(cancellationToken);
+    internal Task StartAsync(CancellationToken cancellationToken) => Context.StartAsync(cancellationToken);
 
 
     public override IPEndPoint EndPoint { get; }
+    
+    protected override void SendBytes(ReadOnlySpan<byte> buffer) => Client.Send(buffer, _remoteEndPoint);
+    protected override async ValueTask SendBytesAsync(ReadOnlyMemory<byte> buffer, CancellationToken ct) =>
+        await Client.SendAsync(buffer, _remoteEndPoint, ct);
 
     internal void UpdateEndpoint(IPEndPoint remoteEndPoint)
     {
@@ -36,75 +40,14 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
 
     internal Task ReadPackageAsync(ProtocolPackage package, CancellationToken cancellationToken)
     {
-        return _context.HandlePackageAsync(package, cancellationToken);
+        return Context.HandlePackageAsync(package, cancellationToken);
     }
-
-    public override async ValueTask SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
-    {
-        var protocolPackage = GetProtocolPackage(buffer);
-        await SendAsync(protocolPackage, cancellationToken);
-    }
-
-    public override void Send(ReadOnlyMemory<byte> buffer)
-    {
-        var protocolPackage = GetProtocolPackage(buffer);
-        Send(protocolPackage);
-    }
-
-    private ProtocolPackage GetProtocolPackage(ReadOnlyMemory<byte> buffer)
-    {
-        var header = PackageHeader.CreateFromContext(_context, PackageType.DataPackage);
-        var dataPackage = new DataPackageBody(buffer);
-        var protocolPackage = new ProtocolPackage(header, dataPackage);
-        return protocolPackage;
-    }
-
-    internal override void Send(ProtocolPackage package)
-    {
-        var buffer = ArrayPool<byte>.Shared.Rent(package.Length);
-        var span = buffer.AsSpan()[..package.Length];
-        package.Header.WriteData(span);
-        package.Body.WriteData(span[package.Header.Length..]);
-        Client.Send(span, _remoteEndPoint);
-        ArrayPool<byte>.Shared.Return(buffer);
-        _context.Tracker.LastSentPackage = package;
-    }
-
-    internal override async ValueTask SendAsync(ProtocolPackage package, CancellationToken cancellationToken)
-    {
-        var buffer = ArrayPool<byte>.Shared.Rent(package.Length);
-        var memory = buffer.AsMemory()[..package.Length];
-        var span = memory.Span;
-        package.Header.WriteData(span);
-        package.Body.WriteData(span[package.Header.Length..]);
-        await Client.SendAsync(memory, _remoteEndPoint, cancellationToken);
-        ArrayPool<byte>.Shared.Return(buffer);
-        _context.Tracker.LastSentPackage = package;
-    }
-
-    public override async Task<byte[]> ReceiveAsync(CancellationToken cancellationToken)
-    {
-        var result = await _context.DataChannel.Reader.ReadAsync(cancellationToken);
-        return result;
-    }
-
-    public override byte[] Receive()
-    {
-        while (true)
-        {
-            if (_context.DataChannel.Reader.TryRead(out var result))
-            {
-                return result;
-            }
-
-            Task.Delay(30).GetAwaiter().GetResult();
-        }
-    }
-
+    
+    
 
     public void Dispose()
     {
         _dispose();
-        _context.Dispose();
+        Context.Dispose();
     }
 }

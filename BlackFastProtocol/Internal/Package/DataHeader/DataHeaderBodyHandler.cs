@@ -6,21 +6,24 @@ namespace BlackFastProtocol.Internal.Package.DataHeader;
 
 internal sealed class DataHeaderBodyHandler : IBodyHandler<DataHeaderBody>
 {
-    public Task HandlePackageAsync(PackageHeader header, DataHeaderBody package, FastBlackSessionContext context,
+    public Task<bool> TryHandlePackageAsync(PackageHeader header, DataHeaderBody package, FastBlackSessionContext context,
         CancellationToken cancellationToken)
     {
         if (!context.Info.IsHandshake)
-            return Task.CompletedTask;
+            return Task.FromResult(false);
 
         context.ClientState = new StreamClientState(package.DataLength);
-        return Task.CompletedTask;
+        return Task.FromResult(true);
     }
 
-    public void HandlePackage(PackageHeader header, DataHeaderBody package, FastBlackSessionContext context)
+    public bool TryHandlePackage(PackageHeader header, DataHeaderBody package, FastBlackSessionContext context)
     {
         if (!context.Info.IsHandshake)
-            return;
+        {
+            return false;
+        }
     
         context.ClientState = new StreamClientState(package.DataLength);
+        return true;
     }
 }

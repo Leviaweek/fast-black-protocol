@@ -7,12 +7,12 @@ namespace BlackFastProtocol.Internal.Package.DataPackage;
 
 internal class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
 {
-    public async Task HandlePackageAsync(PackageHeader header, DataPackageBody package, FastBlackSessionContext context,
+    public async Task<bool> TryHandlePackageAsync(PackageHeader header, DataPackageBody package, FastBlackSessionContext context,
         CancellationToken cancellationToken)
     {
         if (context.ClientState is not StreamClientState streamClientState)
         {
-            return;
+            return false;
         }
 
         if (streamClientState.DataAccumulator is null)
@@ -25,13 +25,15 @@ internal class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
         }
         else
             streamClientState.DataAccumulator.TryAdd(header.Sequence, package.Data.Span);
+
+        return true;
     }
 
-    public void HandlePackage(PackageHeader header, DataPackageBody package, FastBlackSessionContext context)
+    public bool TryHandlePackage(PackageHeader header, DataPackageBody package, FastBlackSessionContext context)
     {
         if (context.ClientState is not StreamClientState streamClientState)
         {
-            return;
+            return false;
         }
 
         if (streamClientState.DataAccumulator is null)
@@ -40,5 +42,7 @@ internal class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
         }
         else
             streamClientState.DataAccumulator.TryAdd(header.Sequence, package.Data.Span);
+
+        return true;
     }
 }

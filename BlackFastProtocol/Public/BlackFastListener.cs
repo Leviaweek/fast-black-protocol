@@ -24,7 +24,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
     private async Task ReceiveLoop(CancellationToken token)
     {
         var emptyEndpoint = new IPEndPoint(IPAddress.Any, 0);
-        var buffer = new byte[65535];
+        var buffer = new byte[1000];
         var memory = buffer.AsMemory();
         while (!token.IsCancellationRequested)
         {
@@ -44,7 +44,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
             
             if (_clients.TryGetValue(header.SessionId, out var client))
             {
-                _ = client.ReadPackageAsync(package, token);
+                await client.ReadPackageAsync(package, token);
                 client.UpdateEndpoint(remoteEndpoint);
                 continue;
             }
@@ -58,7 +58,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
             if (_clients.TryAdd(header.SessionId, client))
             {
                 await _uniqueClients.Writer.WriteAsync(client, token);
-                _ = client.ReadPackageAsync(package, token);
+                await client.ReadPackageAsync(package, token);
             }
             else
             {
