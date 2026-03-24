@@ -1,5 +1,7 @@
 using BlackFastProtocol.Internal.Buffer;
 using BlackFastProtocol.Internal.Package;
+using BlackFastProtocol.Internal.Package.Ack;
+using BlackFastProtocol.Internal.Package.Interfaces;
 using BlackFastProtocol.Internal.State;
 using BlackFastProtocol.Public;
 
@@ -16,6 +18,7 @@ internal sealed class FastBlackSessionContext(
     internal SessionDataPipeline DataChannel { get; } = new();
     internal SequenceManager  SequenceManager { get; } = new();
     internal ReorderingBuffer ReorderingBuffer { get; } = new();
+    internal TaskCompletionSource<IPackageBody>? AckAwaiter { get; set; }
     
     private volatile ClientState _clientState = new DefaultClientState();
     

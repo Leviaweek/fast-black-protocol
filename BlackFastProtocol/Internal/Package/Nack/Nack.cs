@@ -3,7 +3,7 @@ using BlackFastProtocol.Internal.Package.Interfaces;
 
 namespace BlackFastProtocol.Internal.Package.Nack;
 
-public sealed record NackPackage(int LostIds) : IPackageBody, IReadableData<NackPackage>
+public sealed record Nack(int LostIds) : IPackageBody, IReadableData<Nack>
 {
     private const byte IntSize = sizeof(int);
 
@@ -17,7 +17,7 @@ public sealed record NackPackage(int LostIds) : IPackageBody, IReadableData<Nack
         return Length;
     }
     
-    public static NackPackage ReadData(ReadOnlyMemory<byte> buffer, int offset = 0)
+    public static Nack ReadData(ReadOnlyMemory<byte> buffer, int offset = 0)
     {
         if (buffer.Length < offset + IntSize)
             throw new ArgumentException("Buffer too small", nameof(buffer));
@@ -26,7 +26,7 @@ public sealed record NackPackage(int LostIds) : IPackageBody, IReadableData<Nack
 
         var lostIds = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(offset, IntSize));
 
-        return new NackPackage(lostIds);
+        return new Nack(lostIds);
     }
 
     public int Length => IntSize;

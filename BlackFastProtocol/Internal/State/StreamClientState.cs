@@ -27,7 +27,7 @@ internal sealed class StreamClientState(int dataLength = 0) : ClientState, IDisp
         context.DataChannel.Writer.TryWrite(DataAccumulator.FlushWindow());
 
         var header = PackageHeader.CreateFromContext(context, PackageType.Ack);
-        var ack = new AckPackageBody(package.Header.Sequence);
+        var ack = new AckBody(package.Header.Sequence);
         
         var responsePackage = new ProtocolPackage(header, ack);
 

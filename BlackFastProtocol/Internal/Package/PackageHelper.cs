@@ -11,11 +11,11 @@ internal static class PackageHelper
         new Dictionary<PackageType, Func<ReadOnlyMemory<byte>, IPackageBody>>
         {
             [PackageType.Handshake] = buffer => HandshakeBody.ReadData(buffer),
-            [PackageType.DataPackage] = buffer => DataPackageBody.ReadData(buffer),
+            [PackageType.Data] = buffer => DataBody.ReadData(buffer),
         }.ToFrozenDictionary();
     
     public static FrozenDictionary<PackageType, IBodyHandler> Handlers { get; } = new Dictionary<PackageType, IBodyHandler> {
         [PackageType.Handshake] = new BodyHandlerAdapter<HandshakeBody>(new HandshakeBodyHandler()),
-        [PackageType.DataPackage] = new BodyHandlerAdapter<DataPackageBody>(new DataPackageBodyHandler()),
+        [PackageType.Data] = new BodyHandlerAdapter<DataBody>(new DataBodyHandler()),
     }.ToFrozenDictionary();
 }

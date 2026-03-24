@@ -24,7 +24,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
     private async Task ReceiveLoop(CancellationToken token)
     {
         var emptyEndpoint = new IPEndPoint(IPAddress.Any, 0);
-        var buffer = new byte[1000];
+        var buffer = new byte[BlackFastClient.MaxPackageSize];
         var memory = buffer.AsMemory();
         while (!token.IsCancellationRequested)
         {
@@ -32,7 +32,7 @@ public sealed class BlackFastListener(IPEndPoint endPoint): IDisposable
 
             var length = result.ReceivedBytes;
 
-            if (length < 21)
+            if (length < 31)
             {
                 continue;
             }

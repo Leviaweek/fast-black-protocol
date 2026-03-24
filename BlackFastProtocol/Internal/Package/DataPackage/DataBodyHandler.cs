@@ -5,9 +5,9 @@ using BlackFastProtocol.Internal.State;
 
 namespace BlackFastProtocol.Internal.Package.DataPackage;
 
-internal sealed class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
+internal sealed class DataBodyHandler: IBodyHandler<DataBody>
 {
-    public async ValueTask<bool> TryHandlePackageAsync(PackageHeader header, DataPackageBody package, FastBlackSessionContext context,
+    public async ValueTask<bool> TryHandlePackageAsync(PackageHeader header, DataBody package, FastBlackSessionContext context,
         CancellationToken cancellationToken)
     {
         if (context.ClientState is not StreamClientState streamClientState)
@@ -19,7 +19,7 @@ internal sealed class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
         {
             await context.DataChannel.Writer.WriteAsync(package.Data.ToArray(), cancellationToken);
             var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Ack);
-            var ack = new AckPackageBody(header.Sequence);
+            var ack = new AckBody(header.Sequence);
             var responsePackage = new ProtocolPackage(responseHeader, ack);
             await context.Session.SendAsync(responsePackage, cancellationToken);
         }
@@ -29,7 +29,7 @@ internal sealed class DataPackageBodyHandler: IBodyHandler<DataPackageBody>
         return true;
     }
 
-    public bool TryHandlePackage(PackageHeader header, DataPackageBody package, FastBlackSessionContext context)
+    public bool TryHandlePackage(PackageHeader header, DataBody package, FastBlackSessionContext context)
     {
         if (context.ClientState is not StreamClientState streamClientState)
         {

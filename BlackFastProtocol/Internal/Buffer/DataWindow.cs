@@ -1,12 +1,14 @@
+using BlackFastProtocol.Public;
+
 namespace BlackFastProtocol.Internal.Buffer;
 
 internal sealed record DataWindow
 {
-    private readonly byte[] _buffer = new byte[999 * 32];
+    private readonly byte[] _buffer = new byte[BlackFastClient.MaxPayloadSize * BlackFastClient.WindowSize];
     private uint _expectedBytes;
     private int _bytesRead;
 
-    public DataWindow(uint startSequence, uint endSequence, uint expectedBytes = 999 * 32)
+    public DataWindow(uint startSequence, uint endSequence, uint expectedBytes = 999 * BlackFastClient.WindowSize)
     {
         StartSequence = startSequence;
         EndSequence = endSequence;
@@ -18,7 +20,7 @@ internal sealed record DataWindow
 
     public bool Contains(uint sequence) => sequence >= StartSequence && sequence < EndSequence;
 
-    public void Update(uint startSequence, uint endSequence, uint expectedBytes = 999 * 32)
+    public void Update(uint startSequence, uint endSequence, uint expectedBytes = BlackFastClient.MaxPayloadSize * BlackFastClient.WindowSize)
     {
         StartSequence = startSequence;
         EndSequence = endSequence;
@@ -34,12 +36,12 @@ internal sealed record DataWindow
 
         var diff = (int)(sequence - StartSequence);
         
-        if (diff < 0 || diff >= 32 || data.Length > 999)
+        if (diff < 0 || diff >= BlackFastClient.WindowSize || data.Length > BlackFastClient.MaxPayloadSize)
         {
             return false;
         }
         
-        data.CopyTo(_buffer.AsSpan(diff * 999, data.Length));
+        data.CopyTo(_buffer.AsSpan(diff * BlackFastClient.MaxPayloadSize, data.Length));
         _bytesRead += data.Length;
         return true;
     }

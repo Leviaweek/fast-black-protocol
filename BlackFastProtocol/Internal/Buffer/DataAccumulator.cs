@@ -1,9 +1,11 @@
+using BlackFastProtocol.Public;
+
 namespace BlackFastProtocol.Internal.Buffer;
 
 internal sealed record DataAccumulator: IDisposable
 {
-    private int _totalReceivedBytes = 0;
-    public readonly DataWindow Window = new(0, 32);
+    private int _totalReceivedBytes;
+    public readonly DataWindow Window = new(0, BlackFastClient.WindowSize);
     private DateTimeOffset _lastUpdateTime = DateTimeOffset.MinValue;
     private readonly CancellationTokenSource _src;
 
@@ -27,10 +29,10 @@ internal sealed record DataAccumulator: IDisposable
 
         if (remainingBytes <= 0) return;
 
-        const int maxWindowSize = 999 * 32;
+        const int maxWindowSize = BlackFastClient.MaxPayloadSize * BlackFastClient.WindowSize;
         var bytesInWindow = Math.Min(remainingBytes, maxWindowSize);
         
-        var packagesInWindow = (bytesInWindow + 998) / 999;
+        var packagesInWindow = (bytesInWindow + BlackFastClient.MaxPayloadSize - 1) / BlackFastClient.MaxPayloadSize;
         
         Window.Update(startSequence, startSequence + (uint)packagesInWindow, (uint)bytesInWindow);
     }

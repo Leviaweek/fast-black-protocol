@@ -1,9 +1,9 @@
+using System.ComponentModel.DataAnnotations;
 using BlackFastProtocol.Internal.Package.Interfaces;
 
-namespace BlackFastProtocol.Internal.Package.DataFrame;
+namespace BlackFastProtocol.Internal.Package.DataPackage;
 
-internal sealed record DataFrameBody(ReadOnlyMemory<byte> Data) : IPackageBody,
-    IReadableData<DataFrameBody>
+internal sealed record DataBody([MaxLength(1024)] ReadOnlyMemory<byte> Data) : IPackageBody, IReadableData<DataBody>
 {
     public int WriteData(Span<byte> buffer, int offset = 0)
     {
@@ -14,14 +14,13 @@ internal sealed record DataFrameBody(ReadOnlyMemory<byte> Data) : IPackageBody,
         return Length;
     }
 
-    public static DataFrameBody ReadData(ReadOnlyMemory<byte> buffer, int offset = 0)
+    public static DataBody ReadData(ReadOnlyMemory<byte> buffer, int offset = 0)
     {
-        if (buffer.Length < 21 + offset)
+        if (buffer.Length < offset + 1)
             throw new ArgumentException("Buffer too small", nameof(buffer));
         
         var data = buffer[offset..].ToArray();
-        
-        return new DataFrameBody(data);
+        return new DataBody(data);
     }
 
     public int Length => Data.Length;

@@ -1,4 +1,5 @@
 ﻿using BlackFastProtocol.Internal.Package;
+using BlackFastProtocol.Public;
 
 namespace BlackFastProtocol.Internal.Buffer;
 
@@ -45,9 +46,9 @@ internal sealed class ReorderingBuffer(int length = 1024)
         }
         
         var diff = (int)(endSequence - startSequence);
-        if (diff > 32)
+        if (diff > BlackFastClient.WindowSize)
         {
-            throw new ArgumentException("End sequence must be less than start sequence + 32");
+            throw new ArgumentException($"End sequence must be less than start sequence + {BlackFastClient.WindowSize}");
         }
         
         for (var sequence = startSequence; sequence < endSequence; sequence++)

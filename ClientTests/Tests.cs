@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using BlackFastProtocol;
+using BlackFastProtocol.Internal.Session;
 using BlackFastProtocol.Public;
 
 namespace ClientTests;
@@ -34,19 +35,6 @@ public class Tests
             var client = await task;
             
             await Task.Delay(3000);
-
-            var context = _client.GetType().GetField("_context",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(_client)!;
-            
-            var tracker = context.GetType().GetField("Tracker",
-                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic |
-                System.Reflection.BindingFlags.Instance)!.GetValue(context)!;
-            
-            var lastReceivedPackage = tracker.GetType().GetField("LastReceivedPackage",
-                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic |
-                System.Reflection.BindingFlags.Instance)!.GetValue(tracker)!;
-            
-            Console.WriteLine(lastReceivedPackage);
             
             Assert.That(client, Is.Not.Null);
         

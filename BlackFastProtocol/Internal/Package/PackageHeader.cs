@@ -5,7 +5,7 @@ using BlackFastProtocol.Internal.Session;
 
 namespace BlackFastProtocol.Internal.Package;
 
-internal sealed unsafe record PackageHeader : ITypedPackage, IWriteableData, IReadableData<PackageHeader>, ILengthPackage
+internal sealed record PackageHeader : ITypedPackage, IWriteableData, IReadableData<PackageHeader>, ILengthPackage
 {
     public PackageHeader(Guid sessionId, PackageType type, uint id, DateTimeOffset timestamp)
     {
@@ -18,7 +18,8 @@ internal sealed unsafe record PackageHeader : ITypedPackage, IWriteableData, IRe
     private PackageType _type;
     public PackageType Type => _type;
 
-    public int Length => sizeof(Guid) + sizeof(PackageType) + sizeof(uint) + sizeof(long) + sizeof(short);
+    public int Length => Size;
+    public const int Size = 16 + sizeof(PackageType) + sizeof(uint) + sizeof(long) + sizeof(short);
     public Guid SessionId { get; }
     public uint Sequence { get; }
     public DateTimeOffset Timestamp { get; }
