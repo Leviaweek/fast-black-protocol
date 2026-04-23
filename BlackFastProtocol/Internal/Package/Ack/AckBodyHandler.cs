@@ -3,17 +3,24 @@ using BlackFastProtocol.Internal.Session;
 
 namespace BlackFastProtocol.Internal.Package.Ack;
 
+/// <summary>
+/// Routes incoming ACK into the session's SendEngine.
+/// Does NOT complete any TaskCompletionSource — the send pipeline is now event-driven.
+/// </summary>
 internal sealed record AckBodyHandler : IBodyHandler<AckBody>
 {
-    public ValueTask<bool> TryHandlePackageAsync(PackageHeader header, AckBody package, FastBlackSessionContext context, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryHandlePackageAsync(PackageHeader header, AckBody package,
+        FastBlackSessionContext context, CancellationToken cancellationToken)
     {
-        context.AckAwaiter?.TrySetResult(package);
-        return ValueTask.FromResult(true);
+        // Fire-and-forget into the send engine; errors are swallowed intentionally here
+        // because a single bad ACK must not crash the receive loop.
+        await context.SendEngine.OnAckAsync(package, cancellationToken);
+        return true;
     }
 
     public bool TryHandlePackage(PackageHeader header, AckBody package, FastBlackSessionContext context)
     {
-        context.AckAwaiter?.TrySetResult(package);
+        _ = context.SendEngine.OnAckAsync(package, CancellationToken.None);
         return true;
     }
 }

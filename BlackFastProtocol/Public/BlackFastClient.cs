@@ -1,11 +1,10 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using BlackFastProtocol.Internal.Package;
-using BlackFastProtocol.Internal.Package.Ack;
 using BlackFastProtocol.Internal.Package.DataHeader;
 using BlackFastProtocol.Internal.Package.DataPackage;
-using BlackFastProtocol.Internal.Package.Interfaces;
+using BlackFastProtocol.Internal.Package.Ping;
 using BlackFastProtocol.Internal.Session;
 
 namespace BlackFastProtocol.Public;
@@ -14,16 +13,24 @@ public abstract class BlackFastClient(UdpClient client)
 {
     public abstract IPEndPoint EndPoint { get; }
     private protected readonly UdpClient Client = client;
-    internal const int MaxPackageSize = 1400;
-    internal const int MaxPayloadSize = MaxPackageSize - PackageHeader.Size;
-    internal const int WindowSize = 32;
+
+    internal const int MaxPackageSize   = 1400;
+    internal const int MaxPayloadSize   = MaxPackageSize - PackageHeader.Size;
+    internal const int WindowSize       = 32;
     internal const int MaxWindowPayload = MaxPayloadSize * WindowSize;
+
     private protected abstract FastBlackSessionContext Context { get; }
-    
+
     protected abstract void SendBytes(ReadOnlySpan<byte> buffer);
     protected abstract ValueTask SendBytesAsync(ReadOnlyMemory<byte> buffer, CancellationToken ct);
 
-    
+    // ── Public send API ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Send up to MaxWindowPayload bytes reliably.
+    /// Internally fragments if > MaxPayloadSize.
+    /// Larger streams: use SendAsync(IAsyncEnumerable).
+    /// </summary>
     public ValueTask SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken ct)
     {
         if (buffer.Length > MaxWindowPayload)
@@ -31,23 +38,78 @@ public abstract class BlackFastClient(UdpClient client)
                 $"Buffer exceeds {MaxWindowPayload} bytes. Use SendAsync(IAsyncEnumerable<...>) for large data.");
 
         if (buffer.Length <= MaxPayloadSize)
-            return SendAsync(GetDataBodyProtocolPackage(buffer), ct);
+            return SendViaEngineAsync(GetDataBodyPackage(buffer), ct);
 
         return SendFragmentedAsync(buffer, ct);
     }
-    
-    
+
+    /// <summary>Fire-and-forget single packet (no ACK guarantee).</summary>
+    public void Send(ReadOnlyMemory<byte> buffer)
+        => Send(GetDataBodyPackage(buffer));
+
+    /// <summary>
+    /// Send a single small packet with delivery guarantee
+    /// (retransmission until ACK or session abort).
+    /// </summary>
+    public ValueTask SendReliableAsync(ReadOnlyMemory<byte> buffer, CancellationToken ct)
+    {
+        if (buffer.Length > MaxPayloadSize)
+            throw new ArgumentOutOfRangeException(nameof(buffer),
+                $"Buffer exceeds {MaxPayloadSize} bytes. Use SendAsync for larger data.");
+
+        return SendViaEngineAsync(GetDataBodyPackage(buffer), ct);
+    }
+
+    /// <summary>
+    /// Stream large data window-by-window.
+    /// totalSize must exactly equal the sum of all chunk lengths.
+    /// </summary>
+    public async ValueTask SendAsync(IAsyncEnumerable<ReadOnlyMemory<byte>> chunks,
+        int totalSize, CancellationToken ct = default)
+    {
+        await SendViaEngineAsync(CreateDataHeaderPackage(totalSize), ct);
+
+        var sentBytes = 0;
+
+        await foreach (var chunk in chunks.WithCancellation(ct))
+        {
+            await SendViaEngineAsync(GetDataBodyPackage(chunk), ct);
+            sentBytes += chunk.Length;
+        }
+
+        if (sentBytes != totalSize)
+            throw new InvalidOperationException(
+                $"Sent {sentBytes} bytes but declared {totalSize} in DataHeader.");
+    }
+
+    // ── Receive API ───────────────────────────────────────────────────────────────
+
+    public Task<byte[]> ReceiveAsync(CancellationToken ct)
+        => Context.DataChannel.Reader.ReadAsync(ct).AsTask();
+
+    public byte[] Receive(CancellationToken ct)
+        => Context.DataChannel.Reader.ReadAsync(ct).AsTask().GetAwaiter().GetResult();
+
+    // ── Internal send plumbing ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// All sends that require reliable delivery go through the SendEngine.
+    /// The engine queues the packet and sends it when the congestion/flow window allows.
+    /// </summary>
+    private ValueTask SendViaEngineAsync(ProtocolPackage package, CancellationToken ct)
+        => new(Context.SendEngine.EnqueueAsync(package, ct));
+
     private async ValueTask SendFragmentedAsync(ReadOnlyMemory<byte> buffer, CancellationToken ct)
     {
-        await SendAsync(CreateDataHeaderPackage(buffer.Length), ct);
+        await SendViaEngineAsync(CreateDataHeaderPackage(buffer.Length), ct);
+
         var offset = 0;
         while (offset < buffer.Length)
         {
             var size = Math.Min(MaxPayloadSize, buffer.Length - offset);
-            await SendAsync(GetDataBodyProtocolPackage(buffer.Slice(offset, size)), ct);
+            await SendViaEngineAsync(GetDataBodyPackage(buffer.Slice(offset, size)), ct);
             offset += size;
         }
-        await WaitForAckAsync(ct);
     }
 
     private ProtocolPackage CreateDataHeaderPackage(int totalSize)
@@ -55,21 +117,15 @@ public abstract class BlackFastClient(UdpClient client)
         var header = PackageHeader.CreateFromContext(Context, PackageType.DataHeader);
         return new ProtocolPackage(header, new DataHeaderBody(totalSize));
     }
-    
-    private ProtocolPackage GetDataBodyProtocolPackage(ReadOnlyMemory<byte> buffer)
+
+    private ProtocolPackage GetDataBodyPackage(ReadOnlyMemory<byte> buffer)
     {
         var header = PackageHeader.CreateFromContext(Context, PackageType.Data);
-        var body = new DataBody(buffer);
-        var package = new ProtocolPackage(header, body);
-        return package;
+        return new ProtocolPackage(header, new DataBody(buffer));
     }
 
-    public void Send(ReadOnlyMemory<byte> buffer)
-    {
-        var package = GetDataBodyProtocolPackage(buffer);
-        Send(package);
-    }
-    
+    // ── Low-level wire send (used by SendEngine callback + direct ACK/Ping) ───────
+
     internal async ValueTask SendAsync(ProtocolPackage package, CancellationToken ct)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(package.Length);
@@ -79,14 +135,14 @@ public abstract class BlackFastClient(UdpClient client)
             package.Header.WriteData(memory.Span);
             package.Body.WriteData(memory.Span[package.Header.Length..]);
             await SendBytesAsync(memory, ct);
-            Context.Tracker.LastSentPackage = package;
+            Context.Tracker.SentBuffer.Set(package);
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
         }
     }
-    
+
     internal void Send(ProtocolPackage package)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(package.Length);
@@ -96,57 +152,88 @@ public abstract class BlackFastClient(UdpClient client)
             package.Header.WriteData(span);
             package.Body.WriteData(span[package.Header.Length..]);
             SendBytes(span);
-            Context.Tracker.LastSentPackage = package;
+            Context.Tracker.SentBuffer.Set(package);
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
         }
     }
-    
-    public async ValueTask SendAsync(IAsyncEnumerable<ReadOnlyMemory<byte>> chunks,
-        int totalSize,
-        CancellationToken ct = default)
-    {
-        var dataHeader = CreateDataHeaderPackage(totalSize);
-        await SendAsync(dataHeader, ct);
+}
 
-        var sentBytes = 0;
-        var sentInWindow = 0;
-        
-        await foreach (var chunk in chunks.WithCancellation(ct))
+// ── RTT tracker (kept for Ping/Pong RTT measurement) ─────────────────────────────
+
+internal sealed class RetransmissionTimeout
+{
+    private const double Alpha = 0.125;
+    private const double Beta  = 0.25;
+    private bool   _isFirst = true;
+    private double _srtt;
+    private double _rttvar;
+
+    public double Timeout
+    {
+        get => Volatile.Read(ref field);
+        private set => Volatile.Write(ref field, value);
+    }
+
+    public void UpdateRtt(TimeSpan measuredRtt)
+    {
+        var ms = measuredRtt.TotalMilliseconds;
+        if (_isFirst)
         {
-            var dataBodyHeader = GetDataBodyProtocolPackage(chunk);
-            await SendAsync(dataBodyHeader, ct);
-            sentInWindow++;
-            sentBytes += chunk.Length;
-
-            if (sentInWindow != WindowSize) continue;
-            
-            sentInWindow = 0;
-            await WaitForAckAsync(ct);
+            _srtt   = ms;
+            _rttvar = ms / 2.0;
+            _isFirst = false;
         }
-
-        if (sentInWindow > 0)
-            await WaitForAckAsync(ct);
-
-        if (sentBytes != totalSize)
-            throw new InvalidOperationException(
-                $"Sent {sentBytes} bytes but declared {totalSize} in DataHeader.");
+        else
+        {
+            var err = Math.Abs(ms - _srtt);
+            _rttvar = (1 - Beta)  * _rttvar + Beta  * err;
+            _srtt   = (1 - Alpha) * _srtt   + Alpha * ms;
+        }
+        Timeout = Math.Max(_srtt + 4 * _rttvar, 200);
     }
 
-    private async ValueTask<IPackageBody> WaitForAckAsync(CancellationToken ct)
+    private const double MinTimeout = 200;
+}
+
+// ── Ping/Pong keepalive ───────────────────────────────────────────────────────────
+
+internal sealed class PingPongManager
+{
+    private static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan DeadTimeout  = TimeSpan.FromSeconds(15);
+
+    public async Task StartAsync(FastBlackSessionContext context, CancellationToken ct)
     {
-        var tsc = new TaskCompletionSource<IPackageBody>();
-        Context.AckAwaiter = tsc;
-        var result = await tsc.Task.WaitAsync(ct);
-        return result;
+        while (!ct.IsCancellationRequested)
+        {
+            // Use LOCAL receive time to avoid clock-skew issues (fix #8).
+            var lastReceived = context.Tracker.LastReceivedLocalTime;
+            var idle = lastReceived is null
+                ? TimeSpan.MinValue
+                : DateTimeOffset.UtcNow - lastReceived.Value;
+
+            if (idle >= DeadTimeout)
+            {
+                context.Info.IsAborted = true;
+                context.Dispose();
+                return;
+            }
+
+            if (idle >= PingInterval)
+            {
+                var header = PackageHeader.CreateFromContext(context, PackageType.Ping);
+                context.Tracker.PendingPingSequence = header.Sequence;
+                context.Tracker.PingSentTimestamp   = DateTimeOffset.UtcNow;
+                await context.Session.SendAsync(new ProtocolPackage(header, new PingBody()), ct);
+                await Task.Delay(PingInterval, ct);
+            }
+            else
+            {
+                await Task.Delay(PingInterval - idle, ct);
+            }
+        }
     }
-    
-
-    public Task<byte[]> ReceiveAsync(CancellationToken ct) =>
-        Context.DataChannel.Reader.ReadAsync(ct).AsTask();
-
-    public byte[] Receive(CancellationToken ct) =>
-        Context.DataChannel.Reader.ReadAsync(ct).AsTask().GetAwaiter().GetResult();
 }

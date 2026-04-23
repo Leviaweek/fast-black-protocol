@@ -7,5 +7,22 @@
 	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=7fffadf1_002D65f7_002D4d69_002Dbce6_002D78468bf7408c/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" IsActive="True" Name="Tests" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;
   &lt;TestAncestor&gt;
     &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.Tests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.PackageHeaderTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.AckBodyTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.DataBodyTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.DataHeaderBodyTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.SequenceHelperTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.SequenceManagerTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.ReorderingBufferTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.OutgoingBufferTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.DataWindowTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.RtoCalculatorTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.CongestionControllerTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.FlowControllerTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.SendEngineTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.PackageHelperTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.ProtocolPackageTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.WireRoundTripTests&lt;/TestId&gt;
+    &lt;TestId&gt;NUnit3x::F80FD2B9-3495-F422-47B1-EB9E8BB760B2::net10.0::ClientTests.IntegrationTests&lt;/TestId&gt;
   &lt;/TestAncestor&gt;
 &lt;/SessionState&gt;</s:String></wpf:ResourceDictionary>

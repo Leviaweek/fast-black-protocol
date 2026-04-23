@@ -4,31 +4,29 @@ using BlackFastProtocol.Internal.State;
 
 namespace BlackFastProtocol.Internal.Package.Handshake;
 
-internal sealed class HandshakeBodyHandler: IBodyHandler<HandshakeBody>
+internal sealed class HandshakeBodyHandler : IBodyHandler<HandshakeBody>
 {
-    public async ValueTask<bool> TryHandlePackageAsync(PackageHeader header, HandshakeBody package, FastBlackSessionContext context,
-        CancellationToken cancellationToken)
+    public async ValueTask<bool> TryHandlePackageAsync(PackageHeader header, HandshakeBody package,
+        FastBlackSessionContext context, CancellationToken cancellationToken)
     {
         context.Info.IsHandshake = true;
-        
+
         var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Handshake);
-        var handshakeResponse = new HandshakeBody();
-        var responsePackage = new ProtocolPackage(responseHeader, handshakeResponse);
+        var responsePackage = new ProtocolPackage(responseHeader, new HandshakeBody());
         await context.Session.SendAsync(responsePackage, cancellationToken);
-        context.ClientState = new StreamClientState();
+
+        // Pass DataChannel.Writer so StreamClientState can inject DataAccumulator correctly.
+        context.ClientState = new StreamClientState(context.DataChannel.Writer);
         return true;
     }
 
     public bool TryHandlePackage(PackageHeader header, HandshakeBody package, FastBlackSessionContext context)
     {
         context.Info.IsHandshake = true;
-        
+
         var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Handshake);
-        var handshakeResponse = new HandshakeBody();
-        var responsePackage = new ProtocolPackage(responseHeader, handshakeResponse);
-        context.Session.Send(responsePackage);
-        context.ClientState = new StreamClientState();
-        
+        context.Session.Send(new ProtocolPackage(responseHeader, new HandshakeBody()));
+        context.ClientState = new StreamClientState(context.DataChannel.Writer);
         return true;
     }
 }

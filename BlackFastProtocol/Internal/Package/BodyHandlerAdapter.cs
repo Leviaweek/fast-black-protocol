@@ -11,10 +11,15 @@ internal sealed class BodyHandlerAdapter<T>(IBodyHandler<T> innerHandler) : IBod
         CancellationToken cancellationToken)
     {
         var packageBody = Unsafe.As<T>(package.Body);
+        var result = await innerHandler.TryHandlePackageAsync(
+            package.Header, packageBody, context, cancellationToken);
 
-        var result = await innerHandler.TryHandlePackageAsync(package.Header, packageBody, context, cancellationToken);
-        
         if (result)
-            context.Tracker.LastReceivedPackage = package.Body;
+        {
+            context.Tracker.LastReceivedPackage = package;
+            // Record local receive time (not the sender's Header.Timestamp) so that
+            // PingPongManager's idle calculation is immune to clock skew between peers.
+            context.Tracker.LastReceivedLocalTime = DateTimeOffset.UtcNow;
+        }
     }
 }
