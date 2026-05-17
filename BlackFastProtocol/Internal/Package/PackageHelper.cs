@@ -32,4 +32,31 @@ internal static class PackageHelper
             [PackageType.Ping]       = new BodyHandlerAdapter<PingBody>(new PingBodyHandler()),
             [PackageType.Pong]       = new BodyHandlerAdapter<PongBody>(new PongBodyHandler()),
         }.ToFrozenDictionary();
+
+    public static bool TryReadPackage(ReadOnlyMemory<byte> packet, out ProtocolPackage? package)
+    {
+        package = null;
+
+        if (packet.Length < PackageHeader.Size)
+            return false;
+
+        try
+        {
+            var header = PackageHeader.ReadData(packet);
+
+            if (!BodyReaders.TryGetValue(header.Type, out var bodyReader))
+                return false;
+
+            var body = bodyReader(packet[header.Length..]);
+            package = new ProtocolPackage(header, body);
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException
+                                  or ArgumentOutOfRangeException
+                                  or FormatException
+                                  or OverflowException)
+        {
+            return false;
+        }
+    }
 }

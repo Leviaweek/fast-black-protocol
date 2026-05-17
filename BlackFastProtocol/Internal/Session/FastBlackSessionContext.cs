@@ -1,5 +1,6 @@
 using BlackFastProtocol.Internal.Buffer;
 using BlackFastProtocol.Internal.Package;
+using BlackFastProtocol.Internal.Package.Ack;
 using BlackFastProtocol.Internal.State;
 using BlackFastProtocol.Public;
 
@@ -30,22 +31,6 @@ internal sealed class FastBlackSessionContext : IAsyncDisposable, IDisposable
             (pkg, ct) => client.SendAsync(pkg, ct),
             BlackFastClient.WindowSize);
 
-        // FIX: Start the mailbox consumer loop immediately in the constructor.
-        //
-        // Previously RunAsync was started inside StartAsync (which is called
-        // fire-and-forget from ConnectAsync).  The ordering was:
-        //
-        //   ConnectAsync:
-        //     _ = Context.StartAsync()    ← schedules RunAsync later
-        //     await SendAsync(Handshake)  ← EnqueueAsync → posts to channel, awaits TCS
-        //
-        // RunAsync had not started yet when EnqueueAsync awaited TCS, so the channel
-        // was never drained and the TCS never completed → hang.
-        //
-        // Correct fix: start RunAsync in the constructor so the consumer is ALWAYS
-        // running before any caller can possibly call EnqueueAsync.  RunAsync simply
-        // blocks on ReadAllAsync until commands arrive — it has zero cost when idle.
-        // It will be cancelled when the session is disposed via _engineCts.
         _engineCts = new CancellationTokenSource();
         _ = SendEngine.RunAsync(_engineCts.Token);
     }
@@ -126,7 +111,12 @@ internal sealed class FastBlackSessionContext : IAsyncDisposable, IDisposable
 
         if (seq != expected)
         {
-            ReorderingBuffer.TryAdd(package);
+            if (ReorderingBuffer.TryAdd(package))
+            {
+                var receivedMask = ReorderingBuffer.GetPackagesMask(
+                    expected, expected + BlackFastClient.WindowSize);
+                await SendAckAsync(expected - 1, receivedMask, cancellationToken);
+            }
             return;
         }
 
@@ -137,17 +127,27 @@ internal sealed class FastBlackSessionContext : IAsyncDisposable, IDisposable
     {
         await _clientState.HandleAsync(package, this, cancellationToken);
 
-        if (Info.IsAborted) { Dispose(); return; }
+        if (Info.IsAborted) { await DisposeAsync(); return; }
 
         while (ReorderingBuffer.TryGetOrderedPackage(SequenceManager.Expected, out var ordered))
         {
             await _clientState.HandleAsync(ordered!, this, cancellationToken);
-            if (Info.IsAborted) { Dispose(); return; }
+            if (Info.IsAborted) { await DisposeAsync(); return; }
         }
     }
 
     internal static ushort ComputeReceiverWindow()
         => BlackFastClient.WindowSize;
+
+    internal async ValueTask SendAckAsync(uint baseSequence, uint receivedMask,
+        CancellationToken cancellationToken)
+    {
+        var header = PackageHeader.CreateFromContext(this, PackageType.Ack);
+        var ack = new AckBody(baseSequence, receivedMask, ComputeReceiverWindow());
+        var ackPackage = new ProtocolPackage(header, ack);
+        Tracker.LastSentAckOutgoingSequence = header.Sequence;
+        await Session.SendAsync(ackPackage, cancellationToken);
+    }
 
     // ── IDisposable / IAsyncDisposable ────────────────────────────────────────────
 
@@ -157,10 +157,12 @@ internal sealed class FastBlackSessionContext : IAsyncDisposable, IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
 
-        _tickCts?.Cancel();
+        if (_tickCts is not null)
+            await _tickCts.CancelAsync();
+        
         _tickCts?.Dispose();
         await SendEngine.DisposeAsync();
-        _engineCts.Cancel();
+        await _engineCts.CancelAsync();
         _engineCts.Dispose();
         DataChannel.Dispose();
     }

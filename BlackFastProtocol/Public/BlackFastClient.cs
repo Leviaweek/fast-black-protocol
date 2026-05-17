@@ -67,19 +67,68 @@ public abstract class BlackFastClient(UdpClient client)
     public async ValueTask SendAsync(IAsyncEnumerable<ReadOnlyMemory<byte>> chunks,
         int totalSize, CancellationToken ct = default)
     {
-        await SendViaEngineAsync(CreateDataHeaderPackage(totalSize), ct);
+        if (totalSize < 0)
+            throw new ArgumentOutOfRangeException(nameof(totalSize), "Total size cannot be negative.");
 
-        var sentBytes = 0;
+        if (totalSize == 0)
+        {
+            await SendReliableAsync(ReadOnlyMemory<byte>.Empty, ct);
+            return;
+        }
+
+        var window   = new List<ProtocolPackage>();
+        var sentBytes = 0L;
+        var dataPacketsInWindow = 0;
+
+        window.Add(CreateDataHeaderPackage(totalSize));
+
+        async ValueTask AddFragmentAsync(ReadOnlyMemory<byte> fragment)
+        {
+            window.Add(GetDataBodyPackage(fragment));
+            dataPacketsInWindow++;
+
+            if (dataPacketsInWindow == WindowSize)
+            {
+                await Context.SendEngine.EnqueueWindowAsync(window, ct);
+                window.Clear();
+                dataPacketsInWindow = 0;
+            }
+        }
+
+        var fragmentBuffer = new byte[MaxPayloadSize];
+        var fragmentBytes = 0;
 
         await foreach (var chunk in chunks.WithCancellation(ct))
         {
-            await SendViaEngineAsync(GetDataBodyPackage(chunk), ct);
             sentBytes += chunk.Length;
+            if (sentBytes > totalSize)
+                throw new InvalidOperationException(
+                    $"Input stream exceeded declared {totalSize} bytes.");
+
+            var remainingChunk = chunk;
+            while (!remainingChunk.IsEmpty)
+            {
+                var copySize = Math.Min(MaxPayloadSize - fragmentBytes, remainingChunk.Length);
+                remainingChunk[..copySize].CopyTo(fragmentBuffer.AsMemory(fragmentBytes));
+                fragmentBytes += copySize;
+                remainingChunk = remainingChunk[copySize..];
+
+                if (fragmentBytes != MaxPayloadSize) continue;
+
+                await AddFragmentAsync(fragmentBuffer.ToArray());
+                fragmentBytes = 0;
+            }
         }
+
+        if (fragmentBytes > 0)
+            await AddFragmentAsync(fragmentBuffer.AsMemory(0, fragmentBytes).ToArray());
 
         if (sentBytes != totalSize)
             throw new InvalidOperationException(
                 $"Sent {sentBytes} bytes but declared {totalSize} in DataHeader.");
+
+        if (window.Count > 0)
+            await Context.SendEngine.EnqueueWindowAsync(window, ct);
     }
 
     // ── Receive API ───────────────────────────────────────────────────────────────
@@ -101,15 +150,22 @@ public abstract class BlackFastClient(UdpClient client)
 
     private async ValueTask SendFragmentedAsync(ReadOnlyMemory<byte> buffer, CancellationToken ct)
     {
-        await SendViaEngineAsync(CreateDataHeaderPackage(buffer.Length), ct);
+        // Build the complete window: DataHeader + all fragment packets.
+        // They are sent as one atomic burst via EnqueueWindowAsync — no cwnd
+        // gating between individual fragments.
+        // The method returns only after the receiver ACKs the full window.
+        var window = new List<ProtocolPackage>();
+        window.Add(CreateDataHeaderPackage(buffer.Length));
 
         var offset = 0;
         while (offset < buffer.Length)
         {
             var size = Math.Min(MaxPayloadSize, buffer.Length - offset);
-            await SendViaEngineAsync(GetDataBodyPackage(buffer.Slice(offset, size)), ct);
+            window.Add(GetDataBodyPackage(buffer.Slice(offset, size)));
             offset += size;
         }
+
+        await Context.SendEngine.EnqueueWindowAsync(window, ct);
     }
 
     private ProtocolPackage CreateDataHeaderPackage(int totalSize)

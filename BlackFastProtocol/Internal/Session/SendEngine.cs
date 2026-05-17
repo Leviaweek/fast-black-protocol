@@ -1,50 +1,44 @@
 using System.Threading.Channels;
 using BlackFastProtocol.Internal.Package;
 using BlackFastProtocol.Internal.Package.Ack;
+using BlackFastProtocol.Public;
 
 namespace BlackFastProtocol.Internal.Session;
 
 /// <summary>
-/// Sliding-window reliable sender with:
-///   • SACK-based acknowledgement  (AckBody.BaseSequence + ReceivedMask)
-///   • Congestion control          (AIMD slow-start / congestion-avoidance)
-///   • Flow control                (receiver-advertised window via AckBody.ReceiverWindow)
-///   • Per-packet RTO              (RFC 6298 EWMA, minimum 200 ms)
-///   • Mailbox pattern             (all mutations serialised through a Channel — no locks)
+/// Sliding-window reliable sender.
 ///
-/// THREAD-SAFETY MODEL (mailbox / actor pattern):
-///   Previously _pending, _inFlight, _congestionController, _flowController and _rto were
-///   mutated from three concurrent sources:
-///     1. ReceiveLoop   → OnAckAsync     (removes confirmed packets, fast-retransmits)
-///     2. RetransmitTick → TickAsync     (RTO retransmits, reads _inFlight)
-///     3. EnqueueAsync  (caller thread)  (adds to _pending, calls PumpAsync)
-///   All three can run truly in parallel on the .NET thread pool, producing data races on
-///   Dictionary and Queue which are NOT thread-safe.
+/// TWO TRANSMISSION MODES:
 ///
-///   Fix: every public mutating call posts a lambda into an unbounded Channel{Command}.
-///   A single background consumer loop (RunAsync) dequeues and executes them one-by-one,
-///   so _pending / _inFlight / controllers are always accessed from exactly one logical
-///   context at a time — no locks, no ConcurrentDictionary, no torn reads.
+///   EnqueueAsync  — single packet (small payload, SendReliableAsync).
+///     • Returns as soon as the command is posted to the mailbox — fire and
+///       move on. The packet will be sent by PumpAsync as soon as a cwnd slot
+///       opens, and retransmitted by TickInternalAsync if the RTO expires.
+///     • Does NOT block waiting for the packet to be physically sent.
+///       Rationale: the caller (SendReliableAsync) only needs to know the
+///       packet was accepted; delivery is guaranteed by RTO retransmit + ACK.
 ///
-///   EnqueueAsync / OnAckAsync return a Task that completes only after the command
-///   has actually been executed (via TaskCompletionSource), so callers that await them
-///   get correct back-pressure and ordering guarantees.
-///   TickAsync and UpdateRtt are fire-and-forget posts (no completion signal needed).
+///   EnqueueWindowAsync — DataHeader + fragment burst.
+///     • ALL packets sent immediately as one burst (no cwnd gating within the
+///       burst). Returns only after the receiver ACKs the complete window.
+///     • cwnd governs how many concurrent windows are in-flight, not how many
+///       packets are inside one window. Gating individual fragments against
+///       cwnd causes a deadlock: the last fragment can never be sent because
+///       the window is "full", but the ACK that would open the window requires
+///       the last fragment to be received first.
+///
+/// THREAD-SAFETY: mailbox/actor — all state mutations serialised through a
+/// Channel. RunAsync is the single consumer.
 /// </summary>
 internal sealed class SendEngine : IAsyncDisposable
 {
-    // ── Internal state — touched ONLY inside the consumer loop ────────────────────
-
-    private readonly Queue<InFlightPacket>             _pending  = new();
-    private readonly Dictionary<uint, InFlightPacket>  _inFlight = new();
-    private readonly CongestionController              _cc       = new();
-    private readonly FlowController                    _fc;
-    private readonly RtoCalculator                     _rto      = new();
+    private readonly Queue<InFlightPacket>            _pending  = new();
+    private readonly Dictionary<uint, InFlightPacket> _inFlight = new();
+    private readonly CongestionController             _cc       = new();
+    private readonly FlowController                   _fc;
+    private readonly RtoCalculator                    _rto      = new();
     private readonly Func<ProtocolPackage, CancellationToken, ValueTask> _send;
 
-    // ── Mailbox ───────────────────────────────────────────────────────────────────
-
-    // Commands are Func<CancellationToken, Task> so they can share the caller's ct.
     private readonly Channel<Func<CancellationToken, Task>> _mailbox =
         Channel.CreateUnbounded<Func<CancellationToken, Task>>(
             new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
@@ -55,28 +49,24 @@ internal sealed class SendEngine : IAsyncDisposable
         _fc   = new FlowController(initialReceiverWindow);
     }
 
-    // ── Consumer loop — call once from FastBlackSessionContext.StartAsync ─────────
+    // ── Consumer loop ─────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Runs the mailbox consumer. Must be started exactly once per session and
-    /// cancelled via the session's CancellationToken when the session ends.
-    /// </summary>
     public async Task RunAsync(CancellationToken ct)
     {
         await foreach (var cmd in _mailbox.Reader.ReadAllAsync(ct).ConfigureAwait(false))
         {
             try   { await cmd(ct).ConfigureAwait(false); }
             catch (OperationCanceledException) { break; }
-            catch { /* swallow per-command errors — individual callers see them via TCS */ }
+            catch { /* errors surface via individual TCS */ }
         }
     }
 
-    // ── Public API — all post into the mailbox ────────────────────────────────────
+    // ── Public API ────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Enqueue a packet for reliable delivery.
-    /// Awaiting this returns after the packet has been handed to the wire (or queued
-    /// behind the congestion window), not after it has been ACK-ed.
+    /// Enqueue a single packet. Returns immediately after the command is posted —
+    /// does NOT wait for the packet to be physically sent or ACK-ed.
+    /// Delivery is guaranteed by RTO retransmission inside TickInternalAsync.
     /// </summary>
     public Task EnqueueAsync(ProtocolPackage package, CancellationToken ct)
     {
@@ -88,18 +78,56 @@ internal sealed class SendEngine : IAsyncDisposable
             {
                 _pending.Enqueue(new InFlightPacket(package));
                 await PumpAsync(innerCt).ConfigureAwait(false);
+                // Resolve as soon as the command has executed — the packet is
+                // either already sent (PumpAsync moved it to _inFlight) or
+                // waiting in _pending for a slot to open.
                 tcs.TrySetResult();
             }
             catch (Exception ex) { tcs.TrySetException(ex); }
         });
 
-        return tcs.Task;
+        return tcs.Task.WaitAsync(ct);
     }
 
     /// <summary>
-    /// Process an incoming ACK. Removes confirmed packets, fast-retransmits missing
-    /// ones, and pumps pending packets into the now-freed window slots.
+    /// Send an entire window burst (DataHeader + fragments) atomically.
+    /// All packets are sent immediately — no cwnd gating within the burst.
+    /// Returns only after the receiver ACKs the full window (last fragment
+    /// confirmed in ProcessAckAsync).
     /// </summary>
+    public Task EnqueueWindowAsync(IReadOnlyList<ProtocolPackage> window, CancellationToken ct)
+    {
+        if (window.Count == 0) return Task.CompletedTask;
+
+        var packets    = window.Select(pkg => new InFlightPacket(pkg)).ToArray();
+        var windowTcs  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var windowSequences = packets.Select(p => p.Package.Header.Sequence).ToHashSet();
+
+        foreach (var p in packets)
+            p.TrackWindow(windowSequences, windowTcs);
+
+        _mailbox.Writer.TryWrite(async innerCt =>
+        {
+            try
+            {
+                foreach (var p in packets)
+                {
+                    p.MarkSent();
+                    _inFlight[p.Package.Header.Sequence] = p;
+                    await _send(p.Package, innerCt).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                foreach (var p in packets) p.SendTcs.TrySetException(ex);
+                windowTcs.TrySetException(ex);
+            }
+        });
+
+        return windowTcs.Task.WaitAsync(ct);
+    }
+
+    /// <summary>Process an incoming ACK.</summary>
     public Task OnAckAsync(AckBody ack, CancellationToken ct)
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -117,30 +145,32 @@ internal sealed class SendEngine : IAsyncDisposable
         return tcs.Task;
     }
 
-    /// <summary>
-    /// Periodic RTO retransmit check. Fire-and-forget — caller does not need to await.
-    /// </summary>
+    /// <summary>Periodic RTO retransmit check. Fire-and-forget.</summary>
     public void PostTick()
     {
         _mailbox.Writer.TryWrite(async innerCt =>
-        {
-            await TickInternalAsync(innerCt).ConfigureAwait(false);
-        });
+            await TickInternalAsync(innerCt).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Feed a Pong RTT sample into the RTO calculator. Fire-and-forget.
-    /// </summary>
+    /// <summary>Feed a Pong RTT sample. Fire-and-forget.</summary>
     public void UpdateRtt(TimeSpan rtt)
     {
-        _mailbox.Writer.TryWrite(_ =>
-        {
-            _rto.Update(rtt);
-            return Task.CompletedTask;
-        });
+        _mailbox.Writer.TryWrite(_ => { _rto.Update(rtt); return Task.CompletedTask; });
     }
 
-    // ── Private implementation — runs inside consumer loop ────────────────────────
+    // ── Private ───────────────────────────────────────────────────────────────────
+
+    private async Task PumpAsync(CancellationToken ct)
+    {
+        while (_pending.Count > 0
+               && _inFlight.Count < Math.Min(_cc.Window, _fc.Available))
+        {
+            var p = _pending.Dequeue();
+            p.MarkSent();
+            _inFlight[p.Package.Header.Sequence] = p;
+            await _send(p.Package, ct).ConfigureAwait(false);
+        }
+    }
 
     private async Task ProcessAckAsync(AckBody ack, CancellationToken ct)
     {
@@ -152,8 +182,8 @@ internal sealed class SendEngine : IAsyncDisposable
         foreach (var (seq, p) in _inFlight)
         {
             bool confirmed;
-
-            if (SequenceHelper.GreaterOrEqual(ack.BaseSequence, seq))
+            if (SequenceHelper.GreaterOrEqual(ack.BaseSequence, seq)
+                && SequenceHelper.Distance(seq, ack.BaseSequence) <= BlackFastClient.WindowSize)
             {
                 confirmed = true;
             }
@@ -164,14 +194,24 @@ internal sealed class SendEngine : IAsyncDisposable
             }
 
             if (!confirmed) continue;
-
             _rto.Update(now - p.SentAt);
             _cc.OnAck();
             toRemove.Add(seq);
         }
 
         foreach (var r in toRemove)
-            _inFlight.Remove(r);
+        {
+            if (_inFlight.TryGetValue(r, out var p))
+            {
+                _inFlight.Remove(r);
+                // Signal EnqueueWindowAsync that this packet's window is ACK-ed.
+                p.SendTcs.TrySetResult();
+
+                if (p.WindowSequences is not null && p.WindowTcs is not null
+                                                  && p.WindowSequences.All(seq => !_inFlight.ContainsKey(seq)))
+                    p.WindowTcs.TrySetResult();
+            }
+        }
 
         await RetransmitMissingAsync(ack, ct).ConfigureAwait(false);
         await PumpAsync(ct).ConfigureAwait(false);
@@ -193,18 +233,6 @@ internal sealed class SendEngine : IAsyncDisposable
         }
     }
 
-    private async Task PumpAsync(CancellationToken ct)
-    {
-        while (_pending.Count > 0
-               && _inFlight.Count < Math.Min(_cc.Window, _fc.Available))
-        {
-            var p = _pending.Dequeue();
-            p.MarkSent();
-            _inFlight[p.Package.Header.Sequence] = p;
-            await _send(p.Package, ct).ConfigureAwait(false);
-        }
-    }
-
     private async Task RetransmitMissingAsync(AckBody ack, CancellationToken ct)
     {
         var keys = _inFlight.Keys.ToArray();
@@ -212,8 +240,6 @@ internal sealed class SendEngine : IAsyncDisposable
         foreach (var seq in keys)
         {
             if (!_inFlight.TryGetValue(seq, out var p)) continue;
-
-            // BUG-2 FIX: skip packets already confirmed by cumulative BaseSequence.
             if (SequenceHelper.GreaterOrEqual(ack.BaseSequence, seq)) continue;
 
             var dist = SequenceHelper.Distance(ack.BaseSequence + 1, seq);
@@ -228,8 +254,6 @@ internal sealed class SendEngine : IAsyncDisposable
         }
     }
 
-    // ── IAsyncDisposable ──────────────────────────────────────────────────────────
-
     public ValueTask DisposeAsync()
     {
         _mailbox.Writer.TryComplete();
@@ -237,7 +261,7 @@ internal sealed class SendEngine : IAsyncDisposable
     }
 }
 
-// ── Supporting types ─────────────────────────────────────────────────────────────
+// ── Supporting types ──────────────────────────────────────────────────────────────
 
 internal sealed class InFlightPacket
 {
@@ -245,7 +269,23 @@ internal sealed class InFlightPacket
     public DateTime        SentAt  { get; private set; }
     public int             Retries { get; private set; }
 
+    /// <summary>
+    /// Used exclusively by EnqueueWindowAsync: set in ProcessAckAsync when
+    /// this packet's sequence is confirmed by the receiver's window ACK.
+    /// EnqueueAsync packets do not use this TCS.
+    /// </summary>
+    public TaskCompletionSource SendTcs { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public IReadOnlySet<uint>? WindowSequences { get; private set; }
+    public TaskCompletionSource? WindowTcs { get; private set; }
+
     public InFlightPacket(ProtocolPackage package) => Package = package;
+
+    public void TrackWindow(IReadOnlySet<uint> windowSequences, TaskCompletionSource windowTcs)
+    {
+        WindowSequences = windowSequences;
+        WindowTcs = windowTcs;
+    }
 
     public void MarkSent()
     {
@@ -265,10 +305,8 @@ internal sealed class CongestionController
 
     public void OnAck()
     {
-        if (_cwnd < _ssthresh)
-            _cwnd += 1;
-        else
-            _cwnd += 1.0 / _cwnd;
+        if (_cwnd < _ssthresh) _cwnd += 1;
+        else                   _cwnd += 1.0 / _cwnd;
     }
 
     public void OnLoss()
@@ -286,7 +324,6 @@ internal sealed class FlowController
     public int Available               => _window;
 }
 
-/// <summary>RFC 6298 EWMA retransmission timeout calculator.</summary>
 internal sealed class RtoCalculator
 {
     private double _srtt = -1;
@@ -298,23 +335,16 @@ internal sealed class RtoCalculator
     public void Update(TimeSpan rtt)
     {
         var r = rtt.TotalMilliseconds;
-
-        if (_srtt < 0)
-        {
-            _srtt   = r;
-            _rttvar = r / 2;
-        }
+        if (_srtt < 0) { _srtt = r; _rttvar = r / 2; }
         else
         {
             _rttvar = 0.75 * _rttvar + 0.25 * Math.Abs(_srtt - r);
             _srtt   = 0.875 * _srtt  + 0.125 * r;
         }
-
         _rto = Math.Max(_srtt + 4 * _rttvar, 200);
     }
 }
 
-/// <summary>Wrap-safe uint sequence number helpers.</summary>
 internal static class SequenceHelper
 {
     public static bool GreaterOrEqual(uint a, uint b) => (int)(a - b) >= 0;

@@ -36,18 +36,10 @@ public sealed class BlackFastListener(IPEndPoint endPoint) : IDisposable
             if (length < PackageHeader.Size) continue;
 
             var remoteEndpoint = (IPEndPoint)result.RemoteEndPoint;
-            var header = PackageHeader.ReadData(memory);
-
-            // Guard against unknown / malformed PackageType — must not crash the loop.
-            if (!PackageHelper.BodyReaders.TryGetValue(header.Type, out var bodyReader))
+            if (!PackageHelper.TryReadPackage(memory[..length], out var package))
                 continue;
 
-            // Copy body bytes into a fresh array BEFORE the next ReceiveFromAsync
-            // overwrites the shared buffer. DataBody holds ReadOnlyMemory<byte> that
-            // would otherwise alias the reused buffer (fix #5).
-            var bodyBytes = memory[header.Length..length].ToArray().AsMemory();
-            var body = bodyReader(bodyBytes);
-            var package = new ProtocolPackage(header, body);
+            var header = package!.Header;
 
             if (_clients.TryGetValue(header.SessionId, out var client))
             {

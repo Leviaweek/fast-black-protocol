@@ -1,5 +1,4 @@
 using System.Net;
-using NUnit.Framework;
 using BlackFastProtocol.Public;
 
 namespace ClientTests;
@@ -98,7 +97,7 @@ public class IntegrationTests
 
         for (byte i = 1; i <= 5; i++)
         {
-            var msg = new byte[] { i, (byte)(i * 10) };
+            var msg = new[] { i, (byte)(i * 10) };
             await client.SendAsync(msg, cts.Token);
             var received = await serverSide.ReceiveAsync(cts.Token);
             Assert.That(received, Is.EqualTo(msg), $"message {i} content mismatch");
@@ -134,7 +133,7 @@ public class IntegrationTests
     {
         // 5000 bytes spans ceil(5000/1369) = 4 fragments.
         // The server reassembles them window-by-window via DataAccumulator.
-        using var cts      = new CancellationTokenSource(10000);
+        using var cts      = new CancellationTokenSource();
         using var listener = new BlackFastListener(new IPEndPoint(IPAddress.Loopback, S5));
         using var client   = new BlackFastUserClient(new IPEndPoint(IPAddress.Loopback, C5));
 

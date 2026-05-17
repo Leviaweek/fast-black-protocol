@@ -1,4 +1,3 @@
-using System.Threading.Channels;
 using BlackFastProtocol.Internal.Buffer;
 using BlackFastProtocol.Internal.Package;
 using BlackFastProtocol.Internal.Package.Ack;
@@ -6,8 +5,7 @@ using BlackFastProtocol.Internal.Session;
 
 namespace BlackFastProtocol.Internal.State;
 
-internal sealed class StreamClientState(ChannelWriter<byte[]> dataChannel)
-    : ClientState, IDisposable
+internal sealed class StreamClientState : ClientState, IDisposable
 {
     internal DataAccumulator? DataAccumulator { get; set; } = null;
 
@@ -23,25 +21,18 @@ internal sealed class StreamClientState(ChannelWriter<byte[]> dataChannel)
         CancellationToken cancellationToken)
     {
         if (DataAccumulator is null) return;
-        if (!DataAccumulator.Window.IsReady()) return;
 
-        // Flush the completed window — DataAccumulator writes directly to DataChannel.
-        DataAccumulator.FlushWindow();
+        if (!DataAccumulator.Window.HasData) return;
 
-        // ACK the last sequence in the completed window.
-        // The sender expects ACK(EndSequence - 1) regardless of which packet
-        // happened to complete the window (could be out-of-order).
-        var lastWindowSequence = DataAccumulator.Window.EndSequence - 1;
+        var (baseSequence, receivedMask) = DataAccumulator.Window.CreateAck();
+        var isWindowReady = DataAccumulator.Window.IsReady();
 
-        var header = PackageHeader.CreateFromContext(context, PackageType.Ack);
-        var ack = new AckBody(lastWindowSequence, 0, FastBlackSessionContext.ComputeReceiverWindow());
-        var ackPackage = new ProtocolPackage(header, ack);
+        if (isWindowReady)
+            DataAccumulator.FlushWindow();
 
-        // BUG-3 FIX: record outgoing sequence so HandlePackageAsync can re-send
-        // this ACK when a duplicate incoming packet is detected.
-        context.Tracker.LastSentAckOutgoingSequence = header.Sequence;
+        await context.SendAckAsync(baseSequence, receivedMask, cancellationToken);
 
-        await context.Session.SendAsync(ackPackage, cancellationToken);
+        if (!isWindowReady) return;
 
         if (!DataAccumulator.IsComplete())
         {

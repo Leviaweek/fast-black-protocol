@@ -9,14 +9,24 @@ internal sealed class HandshakeBodyHandler : IBodyHandler<HandshakeBody>
     public async ValueTask<bool> TryHandlePackageAsync(PackageHeader header, HandshakeBody package,
         FastBlackSessionContext context, CancellationToken cancellationToken)
     {
+        if (context.ClientState is not DefaultClientState clientState)
+            return false;
+
+        context.ClientState = new StreamClientState();
+            
+        if (context.Info.IsHandshake)
+        {
+            clientState.Source.TrySetResult();
+            return true;
+        }
+        
         context.Info.IsHandshake = true;
 
         var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Handshake);
         var responsePackage = new ProtocolPackage(responseHeader, new HandshakeBody());
         await context.Session.SendAsync(responsePackage, cancellationToken);
 
-        // Pass DataChannel.Writer so StreamClientState can inject DataAccumulator correctly.
-        context.ClientState = new StreamClientState(context.DataChannel.Writer);
+        context.ClientState = new StreamClientState();
         return true;
     }
 
@@ -26,7 +36,7 @@ internal sealed class HandshakeBodyHandler : IBodyHandler<HandshakeBody>
 
         var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Handshake);
         context.Session.Send(new ProtocolPackage(responseHeader, new HandshakeBody()));
-        context.ClientState = new StreamClientState(context.DataChannel.Writer);
+        context.ClientState = new StreamClientState();
         return true;
     }
 }

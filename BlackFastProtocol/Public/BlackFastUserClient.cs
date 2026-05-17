@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using BlackFastProtocol.Internal.Package;
 using BlackFastProtocol.Internal.Package.Handshake;
 using BlackFastProtocol.Internal.Session;
+using BlackFastProtocol.Internal.State;
 
 namespace BlackFastProtocol.Public;
 
@@ -21,24 +22,19 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
     public async Task ConnectAsync(IPEndPoint endPoint, CancellationToken cancellationToken)
     {
         Client.Connect(endPoint);
-
-        // Start background tasks first so the receive loop and session are up
-        // before the Handshake packet is sent (and before any ACK can arrive).
+        
         _ = ReceiveLoop(cancellationToken);
         _ = Context.StartAsync(cancellationToken);
 
-        // Send Handshake via the synchronous low-level wire path (bypasses the
-        // SendEngine mailbox entirely).  Handshake is fire-and-forget by design —
-        // it does not need delivery guarantees, and sending it through the engine
-        // would be redundant because the engine is already running.
+        Context.Info.IsHandshake = true;
+        
         var handshakeHeader = PackageHeader.CreateFromContext(Context, PackageType.Handshake);
-        Send(new ProtocolPackage(handshakeHeader, new HandshakeBody()));
+        await SendAsync(new ProtocolPackage(handshakeHeader, new HandshakeBody()), cancellationToken);
 
-        // Give the listener a moment to process the handshake and register the
-        // session before the caller starts sending data.  This is needed because
-        // StartAsync on the server side is called from AcceptClientAsync, which
-        // the test must await before calling ReceiveAsync.
-        await Task.Delay(50, cancellationToken);
+        if (Context.ClientState is not DefaultClientState clientState)
+            throw new InvalidOperationException("Unexpected client state after handshake.");
+        
+        await clientState.Source.Task.WaitAsync(cancellationToken);
     }
 
     private async Task ReceiveLoop(CancellationToken cancellationToken)
@@ -55,15 +51,11 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
             var length = result.ReceivedBytes;
             if (length < PackageHeader.Size) continue;
 
-            var header = PackageHeader.ReadData(memory);
-
-            if (!PackageHelper.BodyReaders.TryGetValue(header.Type, out var bodyReader))
+            if (!PackageHelper.TryReadPackage(memory[..length], out var package))
                 continue;
 
-            // Copy body bytes before the next receive overwrites the shared buffer.
-            var bodyBytes = memory[header.Length..length].ToArray().AsMemory();
-            var body      = bodyReader(bodyBytes);
-            var package   = new ProtocolPackage(header, body);
+            if (package!.Header.SessionId != Context.Info.SessionId)
+                continue;
 
             await Context.HandlePackageAsync(package, cancellationToken);
         }
@@ -77,5 +69,9 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
 
     public override IPEndPoint EndPoint { get; }
 
-    public void Dispose() => Client.Dispose();
+    public void Dispose()
+    {
+        Context.Dispose();
+        Client.Dispose();
+    }
 }

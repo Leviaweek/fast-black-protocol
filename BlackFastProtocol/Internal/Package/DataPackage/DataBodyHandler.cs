@@ -15,22 +15,21 @@ internal sealed class DataBodyHandler : IBodyHandler<DataBody>
 
         if (streamClientState.DataAccumulator is null)
         {
-            // Single-packet reliable send — write directly and ACK immediately.
+            // ── Single-packet path ─────────────────────────────────────────────
+            // No DataHeader was sent → this is a standalone reliable packet.
+            // Write to channel and ACK immediately.
             await context.DataChannel.Writer.WriteAsync(package.Data.ToArray(), cancellationToken);
 
-            var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Ack);
-            var ack = new AckBody(header.Sequence, 0, FastBlackSessionContext.ComputeReceiverWindow());
-            var ackPackage = new ProtocolPackage(responseHeader, ack);
-
-            // BUG-3 FIX: record the outgoing sequence of this ACK so that
-            // HandlePackageAsync can find it in SentBuffer when re-sending
-            // on duplicate incoming packet detection.
-            context.Tracker.LastSentAckOutgoingSequence = responseHeader.Sequence;
-
-            await context.Session.SendAsync(ackPackage, cancellationToken);
+            await context.SendAckAsync(header.Sequence, 0, cancellationToken);
         }
         else
         {
+            // ── Fragmented path ────────────────────────────────────────────────
+            // Add fragment to the accumulator.
+            // NO per-fragment ACK — the receiver sends ONE ACK for the complete
+            // window in StreamClientState.PostProcessDataAsync (when IsReady()).
+            // The sender uses EnqueueWindowAsync which sends all fragments as a
+            // single burst and waits for the single window-level ACK.
             streamClientState.DataAccumulator.TryAdd(header.Sequence, package.Data.Span);
         }
 
@@ -46,14 +45,7 @@ internal sealed class DataBodyHandler : IBodyHandler<DataBody>
         {
             context.DataChannel.Writer.TryWrite(package.Data.ToArray());
 
-            var responseHeader = PackageHeader.CreateFromContext(context, PackageType.Ack);
-            var ack = new AckBody(header.Sequence, 0, FastBlackSessionContext.ComputeReceiverWindow());
-            var ackPackage = new ProtocolPackage(responseHeader, ack);
-
-            // BUG-3 FIX: same tracking for the synchronous path.
-            context.Tracker.LastSentAckOutgoingSequence = responseHeader.Sequence;
-
-            context.Session.Send(ackPackage);
+            _ = context.SendAckAsync(header.Sequence, 0, CancellationToken.None);
         }
         else
         {

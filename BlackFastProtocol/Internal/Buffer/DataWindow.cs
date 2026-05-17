@@ -1,4 +1,5 @@
 using BlackFastProtocol.Public;
+using BlackFastProtocol.Internal.Session;
 
 namespace BlackFastProtocol.Internal.Buffer;
 
@@ -9,12 +10,15 @@ internal sealed class DataWindow
     private uint _expectedBytes;
     private int _bytesRead;
     private uint _filledMask;
+    private readonly int[] _slotLengths = new int[BlackFastClient.WindowSize];
+    private int _slotCount;
 
     public DataWindow(uint startSequence, uint endSequence, uint expectedBytes)
     {
         StartSequence = startSequence;
         EndSequence = endSequence;
         _expectedBytes = expectedBytes;
+        _slotCount = (int)SequenceHelper.Distance(startSequence, endSequence);
     }
 
     public uint StartSequence { get; private set; }
@@ -23,7 +27,7 @@ internal sealed class DataWindow
     /// <summary>True when at least one packet has been written into this window.</summary>
     public bool HasData => _filledMask != 0;
 
-    public bool Contains(uint sequence) => sequence >= StartSequence && sequence < EndSequence;
+    public bool Contains(uint sequence) => SequenceHelper.Distance(StartSequence, sequence) < (uint)_slotCount;
 
     public void Update(uint startSequence, uint endSequence, uint expectedBytes)
     {
@@ -32,15 +36,19 @@ internal sealed class DataWindow
         _expectedBytes = expectedBytes;
         _filledMask = 0;
         _bytesRead = 0;
+        _slotCount = (int)SequenceHelper.Distance(startSequence, endSequence);
+        Array.Clear(_slotLengths);
     }
 
     public bool TryAdd(uint sequence, ReadOnlySpan<byte> data)
     {
         if (!Contains(sequence)) return false;
+        
+        var diff = (int)SequenceHelper.Distance(StartSequence, sequence);
 
-        var diff = (int)(sequence - StartSequence);
-
-        if (diff < 0 || diff >= BlackFastClient.WindowSize || data.Length > BlackFastClient.MaxPayloadSize)
+        if (diff < 0 || diff >= BlackFastClient.WindowSize
+                     || data.Length == 0
+                     || data.Length > BlackFastClient.MaxPayloadSize)
             return false;
 
         var bit = 1u << diff;
@@ -48,6 +56,7 @@ internal sealed class DataWindow
 
         data.CopyTo(_buffer.AsSpan(diff * BlackFastClient.MaxPayloadSize, data.Length));
         _bytesRead += data.Length;
+        _slotLengths[diff] = data.Length;
         _filledMask |= bit;
         return true;
     }
@@ -67,18 +76,13 @@ internal sealed class DataWindow
         // [i*MaxPayloadSize .. i*MaxPayloadSize + slotBytes) in _buffer.
         // The last filled slot may hold fewer than MaxPayloadSize bytes.
         var result = new byte[_bytesRead];
-        int destOffset = 0;
-        int slotCount = (int)(EndSequence - StartSequence);
-
-        for (int i = 0; i < slotCount; i++)
+        var destOffset = 0;
+        for (var i = 0; i < _slotCount; i++)
         {
             if ((_filledMask & (1u << i)) == 0) continue;
 
-            int srcOffset = i * BlackFastClient.MaxPayloadSize;
-            // All slots except possibly the last hold MaxPayloadSize bytes.
-            // The last slot holds however many bytes remain in _bytesRead.
-            int remaining = _bytesRead - destOffset;
-            int slotBytes = Math.Min(BlackFastClient.MaxPayloadSize, remaining);
+            var srcOffset = i * BlackFastClient.MaxPayloadSize;
+            var slotBytes = _slotLengths[i];
 
             Array.Copy(_buffer, srcOffset, result, destOffset, slotBytes);
             destOffset += slotBytes;
@@ -87,5 +91,30 @@ internal sealed class DataWindow
         return result;
     }
 
-    public bool IsReady() => _bytesRead == _expectedBytes;
+    public (uint BaseSequence, uint ReceivedMask) CreateAck()
+    {
+        var prefixLength = 0;
+        while (prefixLength < _slotCount && (_filledMask & (1u << prefixLength)) != 0)
+            prefixLength++;
+
+        var baseSequence = StartSequence + (uint)prefixLength - 1;
+        var mask = 0u;
+
+        for (var i = prefixLength; i < _slotCount; i++)
+        {
+            if ((_filledMask & (1u << i)) == 0) continue;
+
+            var dist = i - prefixLength;
+            if (dist < 32)
+                mask |= 1u << dist;
+        }
+
+        return (baseSequence, mask);
+    }
+
+    public bool IsReady()
+    {
+        var expectedMask = _slotCount == 32 ? uint.MaxValue : (1u << _slotCount) - 1;
+        return _bytesRead == _expectedBytes && (_filledMask & expectedMask) == expectedMask;
+    }
 }

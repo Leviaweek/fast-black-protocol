@@ -1,4 +1,5 @@
 ﻿using BlackFastProtocol.Internal.Package;
+using BlackFastProtocol.Internal.Session;
 using BlackFastProtocol.Public;
 
 namespace BlackFastProtocol.Internal.Buffer;
@@ -28,8 +29,9 @@ internal sealed class ReorderingBuffer(int length = 1024)
     {
         var index = sequence & _mask;
         package = _buffer[index];
-        if (package is null)
+        if (package is null || package.Header.Sequence != sequence)
         {
+            package = null;
             return false;
         }
 
@@ -40,23 +42,19 @@ internal sealed class ReorderingBuffer(int length = 1024)
     {
         var mask = 0u;
         
-        if (startSequence >= endSequence)
-        {
-            throw new ArgumentException("Start sequence must be less than end sequence");
-        }
-        
-        var diff = (int)(endSequence - startSequence);
-        if (diff > BlackFastClient.WindowSize)
+        var diff = (int)SequenceHelper.Distance(startSequence, endSequence);
+        if (diff is > BlackFastClient.WindowSize or <= 0)
         {
             throw new ArgumentException($"End sequence must be less than start sequence + {BlackFastClient.WindowSize}");
         }
         
-        for (var sequence = startSequence; sequence < endSequence; sequence++)
+        for (var i = 0; i < diff; i++)
         {
+            var sequence = startSequence + (uint)i;
             var index = sequence & _mask;
-            if (_buffer[index] is not null)
+            if (_buffer[index]?.Header.Sequence == sequence)
             {
-                mask |= 1u << (int)(sequence - startSequence);
+                mask |= 1u << i;
             }
         }
 

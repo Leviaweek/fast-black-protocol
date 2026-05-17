@@ -9,8 +9,6 @@ internal sealed class DataAccumulator : IDisposable
     private readonly ChannelWriter<byte[]> _dataChannel;
     private int _totalReceivedBytes;
     public readonly DataWindow Window;
-    private DateTimeOffset _lastUpdateTime = DateTimeOffset.MinValue;
-    private readonly CancellationTokenSource _src;
 
     // BUG-5 FIX: the original constructor always passed startSequence=0 to DataWindow,
     // which is only correct for the very first transfer whose first data packet has
@@ -24,6 +22,9 @@ internal sealed class DataAccumulator : IDisposable
     // The caller (DataHeaderBodyHandler) now passes the current expected sequence.
     public DataAccumulator(int length, ChannelWriter<byte[]> dataChannel, uint startSequence)
     {
+        if (length <= 0)
+            throw new ArgumentOutOfRangeException(nameof(length), "Data length must be positive.");
+
         _dataChannel = dataChannel;
         Length = length;
 
@@ -38,8 +39,6 @@ internal sealed class DataAccumulator : IDisposable
             startSequence + (uint)packagesInWindow,
             (uint)windowBytes);
 
-        _src = new CancellationTokenSource();
-        _ = TimeoutFlushAsync(_src.Token);
     }
 
     public int Length { get; private set; }
@@ -57,16 +56,12 @@ internal sealed class DataAccumulator : IDisposable
         var bytesInWindow = Math.Min(remainingBytes, maxWindowSize);
         var packagesInWindow = (bytesInWindow + BlackFastClient.MaxPayloadSize - 1) / BlackFastClient.MaxPayloadSize;
 
-        // Reset last update time so timeout doesn't fire immediately for the new window.
-        _lastUpdateTime = DateTimeOffset.MinValue;
-
         Window.Update(startSequence, startSequence + (uint)packagesInWindow, (uint)bytesInWindow);
     }
 
     public void Reload(uint startSequence, uint expectedBytes)
     {
         _totalReceivedBytes = 0;
-        _lastUpdateTime = DateTimeOffset.MinValue;
         Length = (int)expectedBytes;
         UpdateWindow(startSequence);
     }
@@ -75,43 +70,14 @@ internal sealed class DataAccumulator : IDisposable
     {
         var data = Window.Flush();
 
-        // Don't write empty arrays to the channel — can happen if flush fires before any data.
         if (data.Length == 0) return;
 
         _dataChannel.TryWrite(data);
         _totalReceivedBytes += data.Length;
-        UpdateWindow();
     }
 
     public bool TryAdd(uint sequence, ReadOnlySpan<byte> data)
-    {
-        var result = Window.TryAdd(sequence, data);
-        if (result)
-            _lastUpdateTime = DateTimeOffset.UtcNow;
-        return result;
-    }
+        => Window.TryAdd(sequence, data);
 
-    private static readonly TimeSpan WindowTimeout = TimeSpan.FromMilliseconds(200);
-
-    private async Task TimeoutFlushAsync(CancellationToken cancellationToken)
-    {
-        var delayTime = WindowTimeout / 4;
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            // Only flush if we have actually received data AND the window has gone idle.
-            // _lastUpdateTime == MinValue means nothing arrived yet — skip.
-            if (_lastUpdateTime != DateTimeOffset.MinValue
-                && DateTimeOffset.UtcNow - _lastUpdateTime > WindowTimeout
-                && Window.HasData)
-            {
-                // Reset timestamp before flushing to prevent re-firing on the very next tick.
-                _lastUpdateTime = DateTimeOffset.UtcNow;
-                FlushWindow();
-            }
-
-            await Task.Delay(delayTime, cancellationToken);
-        }
-    }
-
-    public void Dispose() => _src.Dispose();
+    public void Dispose() { }
 }
