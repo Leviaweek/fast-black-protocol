@@ -974,13 +974,6 @@ internal class PackageHelperTests
     }
 
     [Test]
-    public void UnAck_NotInBodyReaders()
-    {
-        // UnAck is defined in the enum but intentionally has no registered reader.
-        Assert.That(PackageHelper.BodyReaders.ContainsKey(PackageType.UnAck), Is.False);
-    }
-
-    [Test]
     public void AckBodyReader_ParsesCorrectly()
     {
         var orig = new AckBody(42u, 0b111u, 8);

@@ -72,7 +72,7 @@ internal sealed class SendEngine : IAsyncDisposable
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        _mailbox.Writer.TryWrite(async innerCt =>
+        if (!_mailbox.Writer.TryWrite(async innerCt =>
         {
             try
             {
@@ -84,7 +84,10 @@ internal sealed class SendEngine : IAsyncDisposable
                 tcs.TrySetResult();
             }
             catch (Exception ex) { tcs.TrySetException(ex); }
-        });
+        }))
+        {
+            tcs.TrySetException(new ObjectDisposedException(nameof(SendEngine)));
+        }
 
         return tcs.Task.WaitAsync(ct);
     }
@@ -106,7 +109,7 @@ internal sealed class SendEngine : IAsyncDisposable
         foreach (var p in packets)
             p.TrackWindow(windowSequences, windowTcs);
 
-        _mailbox.Writer.TryWrite(async innerCt =>
+        if (!_mailbox.Writer.TryWrite(async innerCt =>
         {
             try
             {
@@ -122,7 +125,11 @@ internal sealed class SendEngine : IAsyncDisposable
                 foreach (var p in packets) p.SendTcs.TrySetException(ex);
                 windowTcs.TrySetException(ex);
             }
-        });
+        }))
+        {
+            foreach (var p in packets) p.SendTcs.TrySetException(new ObjectDisposedException(nameof(SendEngine)));
+            windowTcs.TrySetException(new ObjectDisposedException(nameof(SendEngine)));
+        }
 
         return windowTcs.Task.WaitAsync(ct);
     }
@@ -132,7 +139,7 @@ internal sealed class SendEngine : IAsyncDisposable
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        _mailbox.Writer.TryWrite(async innerCt =>
+        if (!_mailbox.Writer.TryWrite(async innerCt =>
         {
             try
             {
@@ -140,7 +147,10 @@ internal sealed class SendEngine : IAsyncDisposable
                 tcs.TrySetResult();
             }
             catch (Exception ex) { tcs.TrySetException(ex); }
-        });
+        }))
+        {
+            tcs.TrySetException(new ObjectDisposedException(nameof(SendEngine)));
+        }
 
         return tcs.Task;
     }

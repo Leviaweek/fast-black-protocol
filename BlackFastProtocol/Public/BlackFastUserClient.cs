@@ -7,9 +7,12 @@ using BlackFastProtocol.Internal.State;
 
 namespace BlackFastProtocol.Public;
 
-public sealed class BlackFastUserClient : BlackFastClient, IDisposable
+public sealed class BlackFastUserClient : BlackFastClient, IDisposable, IAsyncDisposable
 {
     private protected override FastBlackSessionContext Context { get; }
+    private CancellationTokenSource? _runCts;
+    private Task? _receiveTask;
+    private int _disposed;
 
     public BlackFastUserClient(IPEndPoint endPoint) : base(new UdpClient(endPoint))
     {
@@ -22,19 +25,34 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
     public async Task ConnectAsync(IPEndPoint endPoint, CancellationToken cancellationToken)
     {
         Client.Connect(endPoint);
-        
-        _ = ReceiveLoop(cancellationToken);
-        _ = Context.StartAsync(cancellationToken);
+
+        _runCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var runToken = _runCts.Token;
+
+        _receiveTask = ReceiveLoop(runToken);
+        await Context.StartAsync(runToken);
 
         Context.Info.IsHandshake = true;
-        
-        var handshakeHeader = PackageHeader.CreateFromContext(Context, PackageType.Handshake);
-        await SendAsync(new ProtocolPackage(handshakeHeader, new HandshakeBody()), cancellationToken);
 
         if (Context.ClientState is not DefaultClientState clientState)
             throw new InvalidOperationException("Unexpected client state after handshake.");
-        
-        await clientState.Source.Task.WaitAsync(cancellationToken);
+
+        var handshakeHeader = PackageHeader.CreateFromContext(Context, PackageType.Handshake);
+        var handshakePackage = new ProtocolPackage(handshakeHeader, new HandshakeBody());
+
+        while (!clientState.Source.Task.IsCompleted)
+        {
+            await SendAsync(handshakePackage, runToken);
+
+            var completed = await Task.WhenAny(
+                clientState.Source.Task,
+                Task.Delay(TimeSpan.FromMilliseconds(100), runToken));
+
+            if (completed == clientState.Source.Task)
+                break;
+        }
+
+        await clientState.Source.Task.WaitAsync(runToken);
     }
 
     private async Task ReceiveLoop(CancellationToken cancellationToken)
@@ -71,7 +89,30 @@ public sealed class BlackFastUserClient : BlackFastClient, IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
+        _runCts?.Cancel();
         Context.Dispose();
         Client.Dispose();
+        _runCts?.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
+        if (_runCts is not null)
+            await _runCts.CancelAsync();
+
+        Client.Dispose();
+        await Context.DisposeAsync();
+
+        if (_receiveTask is not null)
+        {
+            try { await _receiveTask; }
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException) { }
+        }
+
+        _runCts?.Dispose();
     }
 }

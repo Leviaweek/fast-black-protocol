@@ -6,12 +6,18 @@ using BlackFastProtocol.Internal.Package;
 
 namespace BlackFastProtocol.Public;
 
-public sealed class BlackFastListener(IPEndPoint endPoint) : IDisposable
+public sealed class BlackFastListener(IPEndPoint endPoint) : IDisposable, IAsyncDisposable
 {
     private readonly UdpClient _client = new(endPoint);
     private readonly ConcurrentDictionary<Guid, BlackFastServerClient> _clients = new();
     private readonly Channel<BlackFastServerClient> _uniqueClients =
         Channel.CreateUnbounded<BlackFastServerClient>();
+    private CancellationTokenSource? _runCts;
+    private Task? _receiveTask;
+    private int _disposed;
+
+    public IPEndPoint EndPoint => _client.Client.LocalEndPoint as IPEndPoint
+        ?? throw new InvalidOperationException("LocalEndPoint is not an IPEndPoint");
 
     public async Task<BlackFastClient> AcceptClientAsync(CancellationToken token)
     {
@@ -59,12 +65,54 @@ public sealed class BlackFastListener(IPEndPoint endPoint) : IDisposable
             }
             else
             {
-                client.Dispose();
+                await client.DisposeAsync();
             }
         }
     }
 
-    public Task StartAsync(CancellationToken token) => ReceiveLoop(token);
+    public Task StartAsync(CancellationToken token)
+    {
+        if (_receiveTask is not null) return _receiveTask;
 
-    public void Dispose() => _client.Dispose();
+        _runCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        _receiveTask = ReceiveLoop(_runCts.Token);
+        return _receiveTask;
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
+        _uniqueClients.Writer.TryComplete();
+        _runCts?.Cancel();
+
+        foreach (var client in _clients.Values)
+            client.Dispose();
+
+        _client.Dispose();
+        _runCts?.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
+        _uniqueClients.Writer.TryComplete();
+
+        if (_runCts is not null)
+            await _runCts.CancelAsync();
+
+        foreach (var client in _clients.Values)
+            await client.DisposeAsync();
+
+        _client.Dispose();
+
+        if (_receiveTask is not null)
+        {
+            try { await _receiveTask; }
+            catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException) { }
+        }
+
+        _runCts?.Dispose();
+    }
 }

@@ -5,7 +5,7 @@ using BlackFastProtocol.Internal.Session;
 
 namespace BlackFastProtocol.Public;
 
-public sealed class BlackFastServerClient : BlackFastClient, IDisposable
+public sealed class BlackFastServerClient : BlackFastClient, IDisposable, IAsyncDisposable
 {
     private volatile IPEndPoint _remoteEndPoint;
     private readonly Action _dispose;
@@ -42,5 +42,11 @@ public sealed class BlackFastServerClient : BlackFastClient, IDisposable
     {
         _dispose();
         Context.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _dispose();
+        await Context.DisposeAsync();
     }
 }
